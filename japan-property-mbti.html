@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>你的日本物業 MBTI 測試</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700;900&family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+:root{--ink:#1a1a2e;--gold:#d4a853;--gold-light:#f0c96e;--cream:#faf8f3;--white:#ffffff;--muted:#6b6b7a;--border:#e8e0d0;--red:#c0392b;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--ink);line-height:1.7;}
+
+/* HERO */
+.hero{background:var(--ink);padding:60px 24px 52px;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 60% 0%,#3a1a2e 0%,transparent 60%),radial-gradient(ellipse at 20% 100%,#1a2e3a 0%,transparent 55%);pointer-events:none;}
+.torii{font-size:52px;display:block;margin-bottom:14px;position:relative;}
+.hero h1{font-family:'Noto Serif TC',serif;font-size:clamp(26px,6vw,46px);font-weight:900;color:#fff;line-height:1.25;margin-bottom:18px;position:relative;}
+.hero h1 span{color:var(--gold);}
+.hero-sub{font-size:clamp(14px,3.5vw,16px);color:rgba(255,255,255,0.7);max-width:540px;margin:0 auto 28px;position:relative;line-height:1.8;}
+.hero-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:600px;margin:0 auto 32px;position:relative;}
+.hero-tag{background:rgba(255,255,255,0.08);border:1px solid rgba(212,168,83,0.3);border-radius:100px;padding:7px 15px;font-size:13px;color:rgba(255,255,255,0.75);}
+.btn-gold{display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold-light),var(--gold));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:16px 36px;border-radius:100px;border:none;cursor:pointer;box-shadow:0 4px 24px rgba(212,168,83,0.4);position:relative;}
+
+/* REGISTER */
+#sec-register{display:none;max-width:500px;margin:44px auto;padding:0 20px;}
+.card{background:var(--white);border-radius:20px;padding:36px 32px;box-shadow:0 2px 40px rgba(26,26,46,0.08);border:1px solid var(--border);}
+.card-title{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:700;margin-bottom:22px;text-align:center;line-height:1.5;}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;}
+.field input{width:100%;padding:13px 15px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;font-family:'Noto Sans TC',sans-serif;color:var(--ink);background:var(--cream);outline:none;}
+.field input:focus{border-color:var(--gold);}
+.btn-dark{width:100%;background:linear-gradient(135deg,var(--ink),#2c2c4a);color:#fff;font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:15px;border:none;border-radius:12px;cursor:pointer;margin-top:6px;}
+
+/* QUIZ */
+#sec-quiz{display:none;max-width:620px;margin:0 auto;padding:28px 20px 60px;background:var(--ink);min-height:100vh;}
+.prog-wrap{background:rgba(255,255,255,0.15);border-radius:100px;height:6px;margin-bottom:24px;overflow:hidden;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--red));border-radius:100px;transition:width 0.4s;}
+.q-label{font-size:12px;color:rgba(255,255,255,0.45);text-align:right;margin-bottom:8px;}
+.q-hint{font-size:12px;color:rgba(212,168,83,0.8);text-align:center;margin-bottom:14px;}
+.q-text{font-family:'Noto Serif TC',serif;font-size:clamp(16px,4.5vw,21px);font-weight:700;color:#fff;margin-bottom:22px;line-height:1.5;}
+.opts{display:flex;flex-direction:column;gap:11px;}
+.opt{background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:15px 18px;font-size:14px;font-family:'Noto Sans TC',sans-serif;color:var(--ink);cursor:pointer;text-align:left;display:flex;align-items:center;gap:13px;line-height:1.5;}
+.opt.sel{border-color:var(--gold);background:#fff8ee;font-weight:600;}
+.opt-letter{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--border);font-size:12px;font-weight:700;flex-shrink:0;}
+.opt.sel .opt-letter{background:var(--gold);color:var(--ink);}
+.quiz-nav{margin-top:24px;display:flex;gap:12px;}
+.btn-back{background:transparent;border:1.5px solid rgba(255,255,255,0.2);border-radius:10px;padding:12px 20px;font-size:14px;font-family:'Noto Sans TC',sans-serif;color:rgba(255,255,255,0.6);cursor:pointer;}
+.btn-next{flex:1;background:var(--white);color:var(--ink);border:none;border-radius:10px;padding:13px 28px;font-size:15px;font-family:'Noto Serif TC',serif;font-weight:700;cursor:pointer;}
+.btn-next:disabled{opacity:0.3;cursor:default;}
+
+/* LOADING */
+#sec-loading{display:none;text-align:center;padding:80px 20px;background:var(--ink);min-height:100vh;}
+.dots{display:inline-flex;gap:8px;}
+.dots span{width:10px;height:10px;border-radius:50%;background:var(--gold);animation:bounce 1.2s infinite;}
+.dots span:nth-child(2){animation-delay:.2s;}
+.dots span:nth-child(3){animation-delay:.4s;}
+@keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-14px);opacity:1;}}
+.loading-text{margin-top:20px;color:rgba(255,255,255,0.6);font-size:14px;}
+
+/* RESULT */
+#sec-result{display:none;max-width:660px;margin:0 auto;padding:28px 20px 60px;}
+.result-hero{background:var(--ink);border-radius:22px;padding:40px 32px 36px;text-align:center;margin-bottom:20px;}
+.r-icon{font-size:60px;display:block;margin-bottom:10px;}
+.r-type-label{font-size:11px;letter-spacing:.18em;color:var(--gold);text-transform:uppercase;margin-bottom:8px;}
+.r-name{font-family:'Noto Serif TC',serif;font-size:clamp(22px,5.5vw,34px);font-weight:900;color:#fff;margin-bottom:4px;}
+.r-en{font-size:13px;color:rgba(255,255,255,0.45);}
+.rsec{background:var(--white);border-radius:15px;padding:26px 26px;margin-bottom:14px;border:1px solid var(--border);}
+.rsec h3{font-family:'Noto Serif TC',serif;font-size:15px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;gap:7px;}
+.rsec p{font-size:14px;color:#333;line-height:1.85;}
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+.tag{background:#fff8ee;border:1px solid #e8d5aa;border-radius:100px;padding:5px 13px;font-size:12px;color:#8a6a20;font-weight:500;}
+.note{background:#fff4f4;border-left:3px solid var(--red);border-radius:0 9px 9px 0;padding:12px 15px;font-size:13px;color:#7a2020;margin-top:10px;}
+
+/* FINANCE TEASER */
+.fin-teaser{background:var(--white);border-radius:15px;padding:20px 24px;margin-bottom:14px;border:1px solid var(--border);text-align:center;}
+.fin-score-big{font-family:'Noto Serif TC',serif;font-size:40px;font-weight:900;color:var(--gold);}
+
+/* UPSELL */
+.upsell{background:linear-gradient(145deg,#1a1a2e 0%,#2c1a3a 50%,#1a2a3a 100%);border-radius:22px;padding:36px 28px;text-align:center;margin-top:20px;border:1px solid rgba(212,168,83,0.2);}
+.upsell-badge{display:inline-block;background:rgba(212,168,83,0.15);border:1px solid rgba(212,168,83,0.35);border-radius:100px;padding:5px 18px;font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--gold);text-transform:uppercase;margin-bottom:18px;}
+.upsell-emojis{font-size:26px;display:block;margin-bottom:12px;}
+.upsell-title{font-family:'Noto Serif TC',serif;font-size:clamp(18px,4.5vw,26px);font-weight:900;color:#fff;margin-bottom:10px;line-height:1.3;}
+.upsell-sub{font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:22px;line-height:1.8;max-width:440px;margin-left:auto;margin-right:auto;}
+.upsell-list{list-style:none;text-align:left;max-width:380px;margin:0 auto 24px;display:flex;flex-direction:column;gap:9px;}
+.upsell-list li{font-size:13px;color:rgba(255,255,255,0.8);display:flex;align-items:flex-start;gap:10px;line-height:1.6;}
+.upsell-num{display:inline-block;background:rgba(212,168,83,0.18);border:1px solid rgba(212,168,83,0.35);border-radius:6px;padding:2px 7px;font-size:11px;color:var(--gold);font-weight:700;flex-shrink:0;white-space:nowrap;}
+.price-row{margin-bottom:20px;}
+.price-now{font-family:'Noto Serif TC',serif;font-size:38px;font-weight:900;color:var(--gold);}
+.btn-pay{display:block;background:linear-gradient(135deg,var(--gold),var(--gold-light),var(--gold));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:17px 32px;border-radius:100px;text-decoration:none;box-shadow:0 4px 24px rgba(212,168,83,0.4);max-width:360px;margin:0 auto 12px;}
+.pay-note{font-size:11px;color:rgba(255,255,255,0.35);}
+
+/* PAYMENT BOX */
+.pay-box{margin-top:18px;background:var(--white);border-radius:15px;border:1px solid var(--border);padding:28px 26px;text-align:center;}
+.pay-box-title{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:700;margin-bottom:6px;}
+.pay-box-sub{font-size:13px;color:var(--muted);margin-bottom:22px;line-height:1.7;}
+.pay-main{display:block;background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:17px;font-weight:700;padding:17px 28px;border-radius:100px;text-decoration:none;box-shadow:0 4px 20px rgba(212,168,83,0.35);margin-bottom:14px;max-width:340px;margin-left:auto;margin-right:auto;}
+.test-box{background:#fff8ee;border:1px dashed var(--gold);border-radius:12px;padding:14px 16px;margin-top:4px;}
+.test-label{font-size:10px;font-weight:700;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;}
+.pay-test{display:block;background:var(--ink);color:var(--gold);font-family:'Noto Serif TC',serif;font-size:14px;font-weight:700;padding:12px 22px;border-radius:100px;text-decoration:none;max-width:280px;margin:0 auto 8px;}
+.test-hint{font-size:11px;color:var(--muted);line-height:1.6;}
+.ssl-note{font-size:11px;color:var(--muted);margin-top:14px;}
+
+@media(max-width:480px){
+  .card{padding:26px 18px;}
+  .rsec{padding:20px 16px;}
+  .upsell{padding:28px 18px;}
+  .result-hero{padding:32px 20px 28px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<section id="sec-hero">
+  <div class="hero">
+    <span class="torii">&#x26E9;&#xFE0F;</span>
+    <h1>你的<span>日本物業</span><br>MBTI 是什麼？</h1>
+    <p class="hero-sub">你有沒有想過，原來只需小資本，就可以在海外做業主、坐享租金收入？<br><br>但你知道自己適合哪個日本城市嗎？你的個性又適合哪種物業類型？你現時的財務狀況，是否真的準備好了？</p>
+    <div class="hero-tags">
+      <span class="hero-tag">&#x1F4B4; 如何以小資金入場？</span>
+      <span class="hero-tag">&#x1F4CC; 選哪個城市最穩？</span>
+      <span class="hero-tag">&#x1F3E0; 你的個性適合哪種物業？</span>
+      <span class="hero-tag">&#x1F4CA; 你的財務準備好了嗎？</span>
+      <span class="hero-tag">&#x1F511; 如何開始第一步？</span>
+    </div>
+    <button class="btn-gold" onclick="goRegister()">立即開始「你的日本物業 MBTI 測試」吧！</button>
+  </div>
+</section>
+
+<!-- REGISTER -->
+<section id="sec-register">
+  <div class="card">
+    <div class="card-title">現在就立即開始「你的專屬日本物業的MBTI測試」吧！</div>
+    <div class="field">
+      <label>你的名稱 *</label>
+      <input type="text" id="inp-name" placeholder="例：Mandy / 陳大文" />
+    </div>
+    <div class="field">
+      <label>你的電郵地址 *</label>
+      <input type="email" id="inp-email" placeholder="example@gmail.com" />
+    </div>
+    <button class="btn-dark" onclick="goQuiz()">開始測試 →</button>
+  </div>
+</section>
+
+<!-- QUIZ -->
+<section id="sec-quiz">
+  <div class="prog-wrap"><div class="prog-fill" id="prog" style="width:5%"></div></div>
+  <div class="q-label" id="qlabel">問題 1 / 20</div>
+  <div class="q-hint">&#x1F4A1; 可選擇多個答案</div>
+  <div class="q-text" id="qtext"></div>
+  <div class="opts" id="opts"></div>
+  <div class="quiz-nav">
+    <button class="btn-back" id="btn-back" onclick="goPrev()">← 返回</button>
+    <button class="btn-next" id="btn-next" onclick="goNext()" disabled>繼續 →</button>
+  </div>
+</section>
+
+<!-- LOADING -->
+<div id="sec-loading">
+  <div style="padding-top:30vh;">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <div class="loading-text">正在分析你的投資個性...</div>
+  </div>
+</div>
+
+<!-- RESULT -->
+<section id="sec-result">
+  <div class="result-hero">
+    <span class="r-icon" id="r-icon"></span>
+    <div class="r-type-label">你的日本物業 MBTI 類型</div>
+    <div class="r-name" id="r-name"></div>
+    <div class="r-en" id="r-en"></div>
+  </div>
+  <div class="rsec"><h3>&#x1FA9E; 你的性格特質</h3><p id="r-traits"></p></div>
+  <div class="rsec"><h3>&#x1F5BE;&#xFE0F; 適合你的日本物業</h3><div class="tags" id="r-props"></div></div>
+  <div class="rsec"><h3>&#x1F4AA; 你最大的優勢</h3><p id="r-strength"></p></div>
+  <div class="rsec"><h3>&#x26A0;&#xFE0F; 需要注意</h3><div class="note" id="r-caution"></div></div>
+
+  <!-- Finance Score Teaser -->
+  <div class="fin-teaser">
+    <p style="font-size:13px;color:#6b6b7a;margin-bottom:8px;">你的日本物業財務準備度</p>
+    <div class="fin-score-big" id="r-fin-score"></div>
+    <p style="font-size:12px;color:#6b6b7a;margin-top:6px;" id="r-fin-label"></p>
+    <p style="font-size:12px;color:#9a6a20;margin-top:10px;">解鎖完整報告，查看你的完整財務分析與建議 &#x1F447;</p>
+  </div>
+
+  <!-- UPSELL -->
+  <div class="upsell">
+    <div class="upsell-badge">專屬優惠</div>
+    <span class="upsell-emojis">&#x2764;&#xFE0F; &#x1F3E0; &#x1F1EF;&#x1F1F5;</span>
+    <div class="upsell-title">以 HK$48 解鎖<br>「你的專屬完整日本物業<br>MBTI 分析報告」</div>
+    <p class="upsell-sub">完整 7 部份專屬分析，真正根據你的個性與財務狀況度身訂造的詳細分析報告。這份報告將幫你由「想買」變成「知道怎樣買」！</p>
+    <div style="font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;margin-bottom:13px;">你的專屬完整日本物業 MBTI 分析報告包含：</div>
+    <ul class="upsell-list">
+      <li><span class="upsell-num">第1部份</span> 你的日本物業 MBTI 類型</li>
+      <li><span class="upsell-num">第2部份</span> 你的人格分析</li>
+      <li><span class="upsell-num">第3部份</span> 你的日本物業投資優勢與盲點</li>
+      <li><span class="upsell-num">第4部份</span> 你適合／不適合策略</li>
+      <li><span class="upsell-num">第5部份</span> 你的日本物業財務準備度 XX/100（包括財務狀態分析與建議）</li>
+      <li><span class="upsell-num">第6部份</span> 適合你的城市方向</li>
+      <li><span class="upsell-num">第7部份</span> 下一步實戰流程提示</li>
+    </ul>
+    <a class="btn-pay" id="upsell-pay-btn" href="https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00" target="_blank">以 HK$48 解鎖「你的專屬完整日本物業 MBTI 分析報告」！</a>
+    <div class="pay-note">&#x1F512; 安全付款 &nbsp;·&nbsp; 信用卡 / PayMe / FPS</div>
+  </div>
+
+  <!-- PAYMENT -->
+  <div class="pay-box" id="pay-section">
+    <div class="pay-box-title">&#x1F4B3; 付款</div>
+    <div class="pay-box-sub">付款後系統將自動發送你的專屬完整報告到你的登記電郵。</div>
+    <a class="pay-main" id="pay-main-btn" href="https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00" target="_blank">
+      &#x1F4B3; 立即以 HK$48 付款解鎖報告
+    </a>
+    <div class="test-box">
+      <div class="test-label">&#x1F9EA; 測試模式（測試完成後移除）</div>
+      <a class="pay-test" id="pay-test-btn" href="https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01" target="_blank">
+        &#x1F9EA; 以 HK$4 測試付款
+      </a>
+      <div class="test-hint">測試信用卡：4242 4242 4242 4242<br>任何未來日期 · 任何 CVC</div>
+    </div>
+    <div class="ssl-note">&#x1F512; 由 Stripe 安全加密處理 · 不儲存你的信用卡資料</div>
+  </div>
+</section>
+
+<script>
+// ── SHEET ──
+var SHEET = 'https://script.google.com/macros/s/AKfycbwc_w7lg1aJSspx0mBFpzA5kRf5AVq5fvZXVlSgQBKCuLkypkkviJGYHURZCMBBqTSbJg/exec';
+
+function saveToSheet(data) {
+  if (!SHEET || SHEET.indexOf('script.google.com') < 0) return;
+  // Method 1: fetch no-cors
+  try {
+    fetch(SHEET, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type': 'text/plain'},
+      body: JSON.stringify(data)
+    });
+  } catch(e1) {}
+  // Method 2: GET beacon via Image (bypasses sandbox restrictions)
+  try {
+    var params = 'action=' + (data._action || 'new')
+      + '&name=' + encodeURIComponent(data.name || '')
+      + '&email=' + encodeURIComponent(data.email || '')
+      + '&mbti=' + encodeURIComponent(data.mbti_type || '')
+      + '&mbti_key=' + encodeURIComponent(data.mbti_key || '')
+      + '&score=' + encodeURIComponent(data.finance_score || '')
+      + '&answers=' + encodeURIComponent((data.answers || '').substring(0, 200));
+    var img = new Image();
+    img.src = SHEET + '?' + params;
+  } catch(e2) {}
+}
+
+// ── STATE ──
+var uName = '';
+var uEmail = '';
+var answers = [];
+var cur = 0;
+for (var i = 0; i < 25; i++) { answers.push([]); }
+
+// ── QUESTIONS ──
+var QS = [
+  {q:'你買日本樓最主要原因是？',opts:['希望有被動收入','想退休或將來移居日本','想做Airbnb增加收入','純粹鍾意日本，想擁有一間屋']},
+  {q:'現時你大約有多少可投資資金？',opts:['少於50萬港元','50-100萬港元','100-300萬港元','300萬港元以上']},
+  {q:'如果物業空置6個月，你會？',opts:['非常焦慮','有少少擔心，但可以接受','可以接受，長遠睇','覺得屬正常投資風險']},
+  {q:'你願意花多少時間管理日本物業？',opts:['完全唔想理','每月花少量時間查看','願意主動參與','喜歡親自參與整個過程']},
+  {q:'現時你有其他投資嗎？',opts:['沒有任何投資','定期儲蓄','股票／ETF','已持有其他物業或生意']},
+  {q:'當你做投資決定時，你通常會？',opts:['很快行動','做少量資料搜集','做大量研究才決定','先問專家意見']},
+  {q:'如果有人推薦一個高回報投資，你通常會？',opts:['很有興趣立即了解','先做少量研究','詳細分析風險','非常保守，不容易行動']},
+  {q:'你對貸款的態度是？',opts:['不喜歡任何負債','可以接受少量貸款','認為適當槓桿可以加快財富增長','已有使用按揭或投資貸款經驗']},
+  {q:'你過去有沒有獨自處理大型財務決定？',opts:['從未','偶爾','經常','我通常主導家庭財務']},
+  {q:'你對日本哪種地區最感興趣？',opts:['東京、大阪等大城市','福岡、札幌等二線城市','沖繩、京都等旅遊區','鄉郊或度假地區']},
+  {q:'如果日本樓需要突然維修10萬日圓，你會？',opts:['覺得壓力很大','可以接受，但會心痛','認為屬正常成本','已預留維修基金']},
+  {q:'你目前的收入來源主要是？',opts:['單一工作收入','工作收入＋少量副業','多重收入來源','已有被動收入']},
+  {q:'你每月大約可以儲起多少錢？',opts:['少於港幣5,000','港幣5,000-15,000','港幣15,000-30,000','港幣30,000以上']},
+  {q:'當計劃一件重要事情時，你通常會？',opts:['邊做邊學','做基本計劃','做詳細規劃','做詳細規劃並準備後備方案']},
+  {q:'如果需要處理日文文件，你會？',opts:['非常抗拒','希望有人協助','願意慢慢學','願意主動研究及處理']},
+  {q:'你曾否到過日本？',opts:['從未去過','去過1-3次','去過很多次','曾長期生活或工作']},
+  {q:'你認為投資最重要的是？',opts:['安全','現金流','資產增值','自由與生活方式']},
+  {q:'如果日本政府政策改變，你會？',opts:['很擔心','希望有人提供建議','先了解再決定','相信長線策略']},
+  {q:'當遇到投資失敗時，你通常會？',opts:['很久都不敢再投資','會檢討後再嘗試','視為學費','立即調整策略再出發']},
+  {q:'如果現在出現一個合適日本物業，你會？',opts:['暫時未準備好','有興趣了解','願意半年內行動','已準備隨時出手']},
+  {q:'你現時每月收入狀況較接近哪一項？',opts:['收入不穩定，暫時難以預測','有收入，但每月剩餘不多','有穩定收入，能固定儲蓄','有穩定收入，並能同時儲蓄及投資','有多個收入來源／被動收入']},
+  {q:'你現時是否已有投資或資產配置經驗？',opts:['暫時未有投資或資產','有少量儲蓄','有股票／ETF／基金等投資','有股票／ETF／基金，亦有較穩定儲蓄','已有物業／海外資產／多元投資配置']},
+  {q:'如果突然失去收入，你現時儲備大約可以支持幾耐？',opts:['少於1個月','1-3個月','3-6個月','6-12個月','超過12個月']},
+  {q:'你現時的負債狀況較接近哪一項？',opts:['有較高信用卡債／私人貸款壓力','有分期或貸款，每月壓力較明顯','有負債，但仍可正常應付','只有低壓力負債，例如可控按揭／低息貸款','幾乎沒有高息負債']},
+  {q:'你過去是否有實際執行投資計劃的經驗？',opts:['仍停留在想法階段','有研究，但未真正開始','已開始投資，例如ETF／股票／基金','有持續投資習慣，並會定期檢視','已有買樓／海外資產／收租經驗']}
+];
+
+// ── TYPE SCORING MAP (per question, per option index) ──
+var MAP = [
+  ['rental','lifestyle','airbnb','lifestyle'],
+  ['future','future','rental','growth'],
+  ['safety','rental','rental','action'],
+  ['rental','rental','action','airbnb'],
+  ['future','safety','growth','growth'],
+  ['action','action','research','safety'],
+  ['action','action','research','safety'],
+  ['safety','safety','growth','growth'],
+  ['future','safety','growth','growth'],
+  ['growth','rental','airbnb','lifestyle'],
+  ['future','rental','growth','safety'],
+  ['future','action','growth','growth'],
+  ['future','future','rental','growth'],
+  ['action','action','research','research'],
+  ['safety','rental','research','research'],
+  ['future','lifestyle','lifestyle','lifestyle'],
+  ['safety','rental','growth','lifestyle'],
+  ['safety','rental','research','rental'],
+  ['safety','rental','action','action'],
+  ['future','future','action','action'],
+  [],[],[],[],[]
+];
+
+// ── TYPES ──
+var TYPES = {
+  rental:   {icon:'&#x1F3E0;',name:'穩健收租型',en:'The Rental Guardian',traits:'你做任何重大決定之前，都會先做好資料搜集，希望風險愈低愈好。相比短時間賺大錢，你更重視穩定現金流及長期資產增值。你做事比較踏實，不喜歡太多不確定性，亦不希望物業需要經常花時間處理。',props:['✅ 福岡','✅ 大阪','✅ 札幌','✅ 市中心細單位','✅ 長租物業'],strength:'你較少衝動買樓，長遠持有能力高，是最穩定的投資類型之一。',caution:'有時過分追求完美，可能錯失投資機會。建議為自己設定決策期限。'},
+  action:   {icon:'&#x1F680;',name:'行動派投資型',en:'The Action Investor',traits:'你屬於「先行動，再優化」型。當你認定一件事值得做，就會快速執行，不喜歡花太長時間研究。你敢於嘗試新事物，亦願意接受投資帶來的波動。',props:['✅ 增值潛力區域','✅ 法拍屋','✅ 翻新物業','✅ 二手物業'],strength:'行動力強，容易捉到市場機會，不會因為猶豫而錯失入市時機。',caution:'避免因為太快決定而忽略重要風險。建議每次行動前做基本盡職審查。'},
+  lifestyle:{icon:'&#x1F338;',name:'日本生活夢想型',en:'The Lifestyle Dreamer',traits:'你買日本樓，不只是為了賺錢。你真正嚮往的是日本生活方式，可能夢想退休、半移居，或者擁有一個屬於自己的日本家。你重視生活品質多於投資回報。',props:['✅ 京都','✅ 沖繩','✅ 金澤','✅ 北海道'],strength:'你對日本有高度熱情，更容易長期持有物業，不輕易因短期波動放棄。',caution:'不要因為「喜歡」而忽略投資基本面。記得做好財務分析再行動。'},
+  airbnb:   {icon:'&#x2708;&#xFE0F;',name:'Airbnb創業型',en:'The Host Explorer',traits:'你喜歡創造不同收入來源。相比長租，你更喜歡透過設計、營運、裝修及旅遊體驗，打造獨特住宿。你具有創業精神，亦願意投入時間經營。',props:['✅ 沖繩旅遊區','✅ 京都','✅ 大阪旅遊區','✅ 旅遊熱點'],strength:'有機會創造比長租更高的現金流，善於發掘市場空間。',caution:'短租涉及法規、營運及管理，需投入較多時間。必須了解各地區民泊法規。'},
+  growth:   {icon:'&#x1F4C8;',name:'資產增值型',en:'The Growth Investor',traits:'你將物業視為整體財富配置的一部分。你通常已經有股票、ETF或其他投資經驗，希望透過日本物業令資產更多元化。你重視回報率及資本增值。',props:['✅ 再開發區域','✅ 東京核心區','✅ 大阪核心區','✅ 人口增長城市'],strength:'具備投資思維，容易建立長期資產組合，懂得利用多元化分散風險。',caution:'不要只追求數字，而忽略實際管理成本及匯率風險。'},
+  safety:   {icon:'&#x1F6E1;&#xFE0F;',name:'保守安全型',en:'The Safety Planner',traits:'你非常重視財務安全。你不喜歡負債，希望做好所有準備才開始投資。你屬於非常理性及謹慎的人，凡事都要確認清楚才會踏出一步。',props:['✅ 現金購買物業','✅ 已有租客物業','✅ 管理成熟地區'],strength:'財務風險控制能力高，不容易做出衝動決定，資金安全感強。',caution:'有時過於保守，容易長期停留在觀望階段。建議為自己設定行動時間表。'},
+  research: {icon:'&#x1F50D;',name:'深度研究型',en:'The Research Analyst',traits:'你是典型的分析型人格。買樓之前，你可能已經看過幾十甚至上百個物業。你喜歡研究數據、人口、租金、空置率及市場趨勢，務求每個決定都有數據支持。',props:['✅ 高現金流地區','✅ 冷門但高回報城市','✅ 地方城市投資'],strength:'分析能力極高，較少犯低級錯誤，投資決策有充分根據。',caution:'避免因分析過多而遲遲未行動。研究是工具，行動才是目標。'},
+  future:   {icon:'&#x23F3;',name:'未來投資準備型',en:'The Future Investor',traits:'你對日本物業充滿興趣，但目前可能仍處於學習階段。原因可能是資金尚未準備好、對流程未夠熟悉、或希望了解更多再決定。這是很多投資者開始的第一步。',props:['✅ 建立儲蓄計劃','✅ 學習日本物業基本知識','✅ 了解買樓流程','✅ 制定投資目標'],strength:'你願意學習，代表你已經踏出第一步。知識就是你最大的資產。',caution:'不要只停留在學習，記得為自己設定行動時間日表，把計劃付諸實行。'}
+};
+
+// ── FINANCE ──
+var FIN = [
+  {range:'0-39分',label:'暫不建議買樓型'},
+  {range:'40-59分',label:'需要建立基礎型'},
+  {range:'60-74分',label:'基礎不錯但需補強型'},
+  {range:'75-89分',label:'接近準備完成型'},
+  {range:'90-100分',label:'已準備好行動型'}
+];
+
+function calcFinScore() {
+  // Q21-25 (index 20-24): each option A-E worth 4/8/12/16/20 points
+  // Multi-select: take the HIGHEST selected option per question (most accurate financial signal)
+  var total = 0;
+  for (var i = 20; i <= 24; i++) {
+    var arr = answers[i];
+    if (arr && arr.length > 0) {
+      var maxOpt = 0;
+      for (var j = 0; j < arr.length; j++) { if (arr[j] > maxOpt) maxOpt = arr[j]; }
+      total += (maxOpt + 1) * 4;
+    }
+  }
+  return Math.min(total, 100);
+}
+
+function getFinLevel(score) {
+  if (score <= 39) return FIN[0];
+  if (score <= 59) return FIN[1];
+  if (score <= 74) return FIN[2];
+  if (score <= 89) return FIN[3];
+  return FIN[4];
+}
+
+// ── NAVIGATION ──
+function show(id) {
+  var ids = ['sec-hero','sec-register','sec-quiz','sec-loading','sec-result'];
+  for (var i = 0; i < ids.length; i++) {
+    document.getElementById(ids[i]).style.display = 'none';
+  }
+  document.getElementById(id).style.display = 'block';
+  window.scrollTo(0, 0);
+}
+
+function goRegister() {
+  show('sec-register');
+}
+
+function goQuiz() {
+  var name = document.getElementById('inp-name').value.trim();
+  var email = document.getElementById('inp-email').value.trim();
+  if (!name) { alert('請輸入你的名稱'); return; }
+  if (!email || email.indexOf('@') < 0) { alert('請輸入有效的電郵地址'); return; }
+  uName = name;
+  uEmail = email;
+  saveToSheet({timestamp:new Date().toISOString(),name:name,email:email,mbti_type:'(登記但未完成測試)',mbti_key:'',finance_score:'',answers:''});
+  cur = 0;
+  for (var i = 0; i < 25; i++) { answers[i] = []; }
+  renderQ();
+  show('sec-quiz');
+}
+
+function renderQ() {
+  var q = QS[cur];
+  var letters = ['A','B','C','D','E'];
+  document.getElementById('qlabel').textContent = '問題 ' + (cur+1) + ' / 25';
+  document.getElementById('prog').style.width = (((cur+1)/25)*100) + '%';
+  document.getElementById('qtext').textContent = (cur+1) + '. ' + q.q;
+  document.getElementById('btn-back').style.visibility = cur === 0 ? 'hidden' : 'visible';
+
+  var html = '';
+  for (var i = 0; i < q.opts.length; i++) {
+    var sel = answers[cur].indexOf(i) >= 0 ? ' sel' : '';
+    html += '<button class="opt' + sel + '" onclick="pick(' + i + ')">';
+    html += '<span class="opt-letter">' + letters[i] + '</span>';
+    html += q.opts[i] + '</button>';
+  }
+  document.getElementById('opts').innerHTML = html;
+  document.getElementById('btn-next').disabled = answers[cur].length === 0;
+  document.getElementById('btn-next').textContent = cur === 24 ? '查看結果 ✦' : '繼續 →';
+}
+
+function pick(i) {
+  var arr = answers[cur];
+  var pos = arr.indexOf(i);
+  if (pos >= 0) { arr.splice(pos, 1); } else { arr.push(i); }
+  renderQ();
+}
+
+function goNext() {
+  if (answers[cur].length === 0) return;
+  if (cur < 24) { cur++; renderQ(); window.scrollTo(0,0); }
+  else { doResult(); }
+}
+
+function goPrev() {
+  if (cur > 0) { cur--; renderQ(); window.scrollTo(0,0); }
+}
+
+function calcType() {
+  var scores = {};
+  for (var i = 0; i < 20; i++) {
+    var arr = answers[i];
+    for (var j = 0; j < arr.length; j++) {
+      var t = MAP[i][arr[j]];
+      scores[t] = (scores[t] || 0) + 1;
+    }
+  }
+  var best = 'rental'; var bestN = 0;
+  for (var k in scores) { if (scores[k] > bestN) { bestN = scores[k]; best = k; } }
+  return best;
+}
+
+function doResult() {
+  show('sec-loading');
+  setTimeout(function() { showResult(); }, 2200);
+}
+
+function showResult() {
+  var typeKey = calcType();
+  var t = TYPES[typeKey];
+  var finScore = calcFinScore();
+  var finLevel = getFinLevel(finScore);
+
+  // Save to sheet
+  var ansStr = '';
+  var letters = ['A','B','C','D','E'];
+  for (var i = 0; i < 25; i++) {
+    var sel = answers[i].length > 0 ? answers[i].map(function(a){return letters[a];}).join('+') : '-';
+    ansStr += 'Q'+(i+1)+':'+sel+(i<24?', ':'');
+  }
+  saveToSheet({_action:'update',timestamp:new Date().toISOString(),name:uName,email:uEmail,mbti_type:t.name,mbti_key:typeKey,finance_score:finScore,answers:ansStr});
+
+  // Render
+  document.getElementById('r-icon').innerHTML = t.icon;
+  document.getElementById('r-name').textContent = t.name;
+  document.getElementById('r-en').textContent = t.en;
+  document.getElementById('r-traits').textContent = t.traits;
+  document.getElementById('r-strength').textContent = t.strength;
+  document.getElementById('r-caution').textContent = t.caution;
+
+  var propsHtml = '';
+  for (var p = 0; p < t.props.length; p++) {
+    propsHtml += '<span class="tag">' + t.props[p] + '</span>';
+  }
+  document.getElementById('r-props').innerHTML = propsHtml;
+  document.getElementById('r-fin-score').textContent = finScore + '/100';
+  document.getElementById('r-fin-label').textContent = finLevel.range + '｜' + finLevel.label;
+
+  // Build Stripe payment URLs with customer data embedded
+  // These params are passed back via Stripe success URL redirect
+  var mainURL = 'https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00';
+  var testURL = 'https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01';
+  var encodedEmail = encodeURIComponent(uEmail);
+  var encodedName = encodeURIComponent(uName);
+  var finLevelKey = finScore <= 39 ? 'level1' : finScore <= 59 ? 'level2' : finScore <= 74 ? 'level3' : finScore <= 89 ? 'level4' : 'level5';
+  // client_reference_id carries mbti type (read by Stripe webhook)
+  // utm params carry finance data (passed back in success URL)
+  var params = '?prefilled_email=' + encodedEmail
+    + '&client_reference_id=' + typeKey
+    + '&utm_content=' + finScore
+    + '&utm_term=' + finLevelKey
+    + '&utm_source=' + encodedName
+    + '&utm_campaign=' + encodedEmail;
+  document.getElementById('pay-main-btn').href = mainURL + params;
+  document.getElementById('pay-test-btn').href = testURL + params;
+  document.getElementById('upsell-pay-btn').href = mainURL + params;
+
+  show('sec-result');
+}
+
+function scrollPay() {
+  setTimeout(function() {
+    var el = document.getElementById('pay-section');
+    if (el) { el.scrollIntoView({behavior:'smooth',block:'start'}); }
+  }, 100);
+}
+
+// ── CHECK IF RETURNING FROM STRIPE PAYMENT ──
+// ── PAYMENT RETURN HANDLER ──
+// Stripe redirects back to this page after payment.
+// We set the Stripe success URL to include the customer data as URL params.
+// Format: japan-property-mbti.html?paid=1&email=EMAIL&mbti=TYPE&score=SCORE&level=LEVEL&name=NAME
+function checkPaymentReturn() {
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('paid') !== '1') return;
+
+    // Read params that Stripe passes back via success URL
+    var email = decodeURIComponent(urlParams.get('email') || '');
+    var mbtiKey = urlParams.get('mbti') || 'rental';
+    var finScore = urlParams.get('score') || '60';
+    var finLevel = urlParams.get('level') || 'level3';
+    var name = decodeURIComponent(urlParams.get('name') || '投資者');
+
+    if (!email || email === '投資者') return;
+
+    // Send to Apps Script → triggers email report to customer
+    saveToSheet({
+      _action: 'stripe_paid',
+      email: email,
+      name: name,
+      mbti_key: mbtiKey,
+      finance_score: finScore,
+      finance_level: finLevel,
+      amount: 48
+    });
+
+    // Show thank you page
+    document.body.innerHTML = ''
+      + '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;padding:40px 20px;text-align:center;">'
+      + '<div style="max-width:500px;">'
+      + '<div style="font-size:56px;margin-bottom:20px;">&#x2705;</div>'
+      + '<div style="font-family:Georgia,serif;font-size:24px;font-weight:700;color:#d4a853;margin-bottom:16px;">付款成功！</div>'
+      + '<div style="font-size:16px;color:rgba(255,255,255,0.85);line-height:2;margin-bottom:24px;">'
+      + '請查看發送到你電郵的<br><strong style="color:#f0c96e;">「你的專屬完整日本物業 MBTI 分析報告」</strong><br>'
+      + '<span style="font-size:13px;color:rgba(255,255,255,0.5);">發送至：' + email + '</span>'
+      + '</div>'
+      + '<div style="background:rgba(255,255,255,0.06);border:1px solid rgba(212,168,83,0.2);border-radius:14px;padding:18px 20px;margin-bottom:24px;">'
+      + '<div style="font-size:13px;color:rgba(255,255,255,0.55);line-height:1.9;">'
+      + '&#x1F4EC; 請稍等數分鐘查看電郵<br>'
+      + '&#x1F4C1; 如未收到，請查看垃圾郵件箱<br>'
+      + '&#x1F4F1; 如有問題請 WhatsApp：<strong style="color:#d4a853;">+852 9759 4689</strong>'
+      + '</div>'
+      + '</div>'
+      + '<div style="font-size:11px;color:rgba(255,255,255,0.25);">Crystal桃桃&#x1F3E0; 日本物業投資顧問</div>'
+      + '</div></div>';
+  } catch(e) {}
+}
+
+// Run on page load
+checkPaymentReturn();
+</script>
+</body>
+</html>
