@@ -196,7 +196,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
     <div class="pay-note">&#x1F512; 安全付款 &nbsp;·&nbsp; 信用卡 / PayMe / FPS</div>
     <div style="margin-top:14px;background:#1a1a2e;border:1px dashed rgba(212,168,83,0.4);border-radius:12px;padding:14px 16px;text-align:center;">
       <div style="font-size:10px;font-weight:700;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">&#x1F9EA; 測試模式（測試完成後移除）</div>
-      <a id="pay-test-btn" href="https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01" target="_blank" style="display:block;background:rgba(212,168,83,0.15);color:var(--gold);font-family:'Noto Serif TC',serif;font-size:14px;font-weight:700;padding:11px 22px;border-radius:100px;text-decoration:none;border:1px solid rgba(212,168,83,0.4);max-width:280px;margin:0 auto 8px;">
+      <a id="pay-test-btn" href="https://buy.stripe.com/test_3cI4gyfVXcBo0Yvcz20gw00" target="_blank" style="display:block;background:rgba(212,168,83,0.15);color:var(--gold);font-family:'Noto Serif TC',serif;font-size:14px;font-weight:700;padding:11px 22px;border-radius:100px;text-decoration:none;border:1px solid rgba(212,168,83,0.4);max-width:280px;margin:0 auto 8px;">
         &#x1F9EA; 以 HK$4 測試付款
       </a>
       <div style="font-size:11px;color:rgba(255,255,255,0.4);line-height:1.6;">測試信用卡：4242 4242 4242 4242<br>任何未來日期 · 任何 CVC</div>
@@ -474,7 +474,7 @@ function showResult() {
 
   // Build Stripe payment URLs
   var mainURL = 'https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00';
-  var testURL = 'https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01';
+  var testURL = 'https://buy.stripe.com/test_3cI4gyfVXcBo0Yvcz20gw00';
   var encodedEmail = encodeURIComponent(uEmail);
   var encodedName = encodeURIComponent(uName);
   var finLevelKey = finScore <= 39 ? 'level1' : finScore <= 59 ? 'level2' : finScore <= 74 ? 'level3' : finScore <= 89 ? 'level4' : 'level5';
