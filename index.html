@@ -434,6 +434,7 @@ function doResult() {
 }
 
 function showResult() {
+  try {
   var typeKey = calcType();
   var t = TYPES[typeKey];
   var finScore = calcFinScore();
@@ -477,11 +478,13 @@ function showResult() {
     + '&utm_content=' + finScore
     + '&utm_term=' + finLevelKey
     + '&utm_source=' + encodedName;
-  document.getElementById('pay-main-btn').href = mainURL + params;
-  document.getElementById('pay-test-btn').href = testURL + params;
-  document.getElementById('upsell-pay-btn').href = mainURL + params;
+  // Update payment links safely
+  try { document.getElementById('pay-main-btn').href = mainURL + params; } catch(e) {}
+  try { document.getElementById('pay-test-btn').href = testURL + params; } catch(e) {}
+  try { document.getElementById('upsell-pay-btn').href = mainURL + params; } catch(e) {}
 
   show('sec-result');
+  } catch(err) { console.log('showResult error:',err); show('sec-result'); }
 }
 
 function scrollPay() {
