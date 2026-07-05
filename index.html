@@ -207,8 +207,10 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
 </section>
 
 <script>
-// ── SHEET ──
-var SHEET = 'https://script.google.com/macros/s/AKfycbwc_w7lg1aJSspx0mBFpzA5kRf5AVq5fvZXVlSgQBKCuLkypkkviJGYHURZCMBBqTSbJg/exec';
+// -- SHEET --
+// [已修正] 之前呢個URL指向緊一個唔同/舊嘅 Apps Script deployment，
+// 導致所有backend更新都冇實際生效。而家已改成正確嘅 Version 5 deployment URL。
+var SHEET = 'https://script.google.com/macros/s/AKfycbyFgcDLnVcFTruwlMpW2Q9sZ08m8IKYkj4LsDsDHK5bHmirVHW5pkaIi6DgP83_d6RD/exec';
 
 function saveToSheet(data) {
   if (!SHEET || SHEET.indexOf('script.google.com') < 0) return;
@@ -218,7 +220,7 @@ function saveToSheet(data) {
     + '&mbti=' + encodeURIComponent(data.mbti_type || '')
     + '&mbti_key=' + encodeURIComponent(data.mbti_key || '')
     + '&score=' + encodeURIComponent(data.finance_score || '')
-    + '&answers=' + encodeURIComponent((data.answers || '').substring(0, 300));
+    + '&answers=' + encodeURIComponent((data.answers || '').substring(0, 500));
 
   // Method 1: Image beacon GET (most reliable, bypasses CORS)
   try {
@@ -237,14 +239,14 @@ function saveToSheet(data) {
 
 }
 
-// ── STATE ──
+// -- STATE --
 var uName = '';
 var uEmail = '';
 var answers = [];
 var cur = 0;
 for (var i = 0; i < 25; i++) { answers.push([]); }
 
-// ── QUESTIONS ──
+// -- QUESTIONS --
 var QS = [
   {q:'你買日本樓最主要原因是？',opts:['希望有被動收入','想退休或將來移居日本','想做Airbnb增加收入','純粹鍾意日本，想擁有一間屋']},
   {q:'現時你大約有多少可投資資金？',opts:['少於50萬港元','50-100萬港元','100-300萬港元','300萬港元以上']},
@@ -273,7 +275,7 @@ var QS = [
   {q:'你過去是否有實際執行投資計劃的經驗？',opts:['仍停留在想法階段','有研究，但未真正開始','已開始投資，例如ETF／股票／基金','有持續投資習慣，並會定期檢視','已有買樓／海外資產／收租經驗']}
 ];
 
-// ── TYPE SCORING MAP (per question, per option index) ──
+// -- TYPE SCORING MAP (per question, per option index) --
 var MAP = [
   ['rental','lifestyle','airbnb','lifestyle'],
   ['future','future','rental','growth'],
@@ -298,7 +300,7 @@ var MAP = [
   [],[],[],[],[]
 ];
 
-// ── TYPES ──
+// -- TYPES --
 var TYPES = {
   rental:   {icon:'&#x1F3E0;',name:'穩健收租型',en:'The Rental Guardian',traits:'你做任何重大決定之前，都會先做好資料搜集，希望風險愈低愈好。相比短時間賺大錢，你更重視穩定現金流及長期資產增值。你做事比較踏實，不喜歡太多不確定性，亦不希望物業需要經常花時間處理。',props:['✅ 福岡','✅ 大阪','✅ 札幌','✅ 市中心細單位','✅ 長租物業'],strength:'你較少衝動買樓，長遠持有能力高，是最穩定的投資類型之一。',caution:'有時過分追求完美，可能錯失投資機會。建議為自己設定決策期限。'},
   action:   {icon:'&#x1F680;',name:'行動派投資型',en:'The Action Investor',traits:'你屬於「先行動，再優化」型。當你認定一件事值得做，就會快速執行，不喜歡花太長時間研究。你敢於嘗試新事物，亦願意接受投資帶來的波動。',props:['✅ 增值潛力區域','✅ 法拍屋','✅ 翻新物業','✅ 二手物業'],strength:'行動力強，容易捉到市場機會，不會因為猶豫而錯失入市時機。',caution:'避免因為太快決定而忽略重要風險。建議每次行動前做基本盡職審查。'},
@@ -310,7 +312,7 @@ var TYPES = {
   future:   {icon:'&#x23F3;',name:'未來投資準備型',en:'The Future Investor',traits:'你對日本物業充滿興趣，但目前可能仍處於學習階段。原因可能是資金尚未準備好、對流程未夠熟悉、或希望了解更多再決定。這是很多投資者開始的第一步。',props:['✅ 建立儲蓄計劃','✅ 學習日本物業基本知識','✅ 了解買樓流程','✅ 制定投資目標'],strength:'你願意學習，代表你已經踏出第一步。知識就是你最大的資產。',caution:'不要只停留在學習，記得為自己設定行動時間日表，把計劃付諸實行。'}
 };
 
-// ── FINANCE ──
+// -- FINANCE --
 var FIN = [
   {range:'0-39分',label:'暫不建議買樓型'},
   {range:'40-59分',label:'需要建立基礎型'},
@@ -342,7 +344,7 @@ function getFinLevel(score) {
   return FIN[4];
 }
 
-// ── NAVIGATION ──
+// -- NAVIGATION --
 function show(id) {
   var ids = ['sec-hero','sec-register','sec-quiz','sec-loading','sec-result'];
   for (var i = 0; i < ids.length; i++) {
@@ -433,14 +435,26 @@ function showResult() {
   var finScore = calcFinScore();
   var finLevel = getFinLevel(finScore);
 
-  // Save to sheet
+  // Build answers string
   var ansStr = '';
   var letters = ['A','B','C','D','E'];
   for (var i = 0; i < 25; i++) {
     var sel = answers[i].length > 0 ? answers[i].map(function(a){return letters[a];}).join('+') : '-';
     ansStr += 'Q'+(i+1)+':'+sel+(i<24?', ':'');
   }
-  
+
+  // [已修正] 之前呢度計完 ansStr 之後從來冇send出去，
+  // 導致 Sheet 永遠停留在「登記但未完成測試」嘅佔位狀態。
+  // 而家補返呢個call，將完成測試嘅真實資料更新返去對應嘅row。
+  saveToSheet({
+    _action: 'update',
+    name: uName,
+    email: uEmail,
+    mbti_type: t.name,
+    mbti_key: typeKey,
+    finance_score: finScore,
+    answers: ansStr
+  });
 
   // Render
   document.getElementById('r-icon').innerHTML = t.icon;
@@ -459,8 +473,6 @@ function showResult() {
   document.getElementById('r-fin-label').textContent = finLevel.range + '｜' + finLevel.label;
 
   // Build Stripe payment URLs
-  // SUCCESS URL = Apps Script doGet with all customer data
-  // Stripe will redirect to this URL after successful payment
   var mainURL = 'https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00';
   var testURL = 'https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01';
   var encodedEmail = encodeURIComponent(uEmail);
@@ -471,7 +483,6 @@ function showResult() {
     + '&utm_content=' + finScore
     + '&utm_term=' + finLevelKey
     + '&utm_source=' + encodedName;
-  // Update payment links safely
   try { document.getElementById('pay-main-btn').href = mainURL + params; } catch(e) {}
   try { document.getElementById('pay-test-btn').href = testURL + params; } catch(e) {}
   try { document.getElementById('upsell-pay-btn').href = mainURL + params; } catch(e) {}
@@ -487,17 +498,12 @@ function scrollPay() {
   }, 100);
 }
 
-// ── CHECK IF RETURNING FROM STRIPE PAYMENT ──
-// ── PAYMENT RETURN HANDLER ──
-// Stripe redirects back to this page after payment.
-// We set the Stripe success URL to include the customer data as URL params.
-// Format: japan-property-mbti.html?paid=1&email=EMAIL&mbti=TYPE&score=SCORE&level=LEVEL&name=NAME
+// -- PAYMENT RETURN HANDLER --
 function checkPaymentReturn() {
   try {
     var urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('paid') !== '1') return;
 
-    // Read params that Stripe passes back via success URL
     var email = decodeURIComponent(urlParams.get('email') || '');
     var mbtiKey = urlParams.get('mbti') || 'rental';
     var finScore = urlParams.get('score') || '60';
@@ -506,7 +512,6 @@ function checkPaymentReturn() {
 
     if (!email || email === '投資者') return;
 
-    // Send to Apps Script → triggers email report to customer
     saveToSheet({
       _action: 'stripe_paid',
       email: email,
@@ -517,7 +522,6 @@ function checkPaymentReturn() {
       amount: 48
     });
 
-    // Show thank you page
     document.body.innerHTML = ''
       + '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;padding:40px 20px;text-align:center;">'
       + '<div style="max-width:500px;">'
@@ -538,7 +542,6 @@ function checkPaymentReturn() {
   } catch(e) {}
 }
 
-// Run on page load
 checkPaymentReturn();
 </script>
 </body>
