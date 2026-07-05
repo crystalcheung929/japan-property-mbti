@@ -89,16 +89,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
 .btn-pay{display:block;background:linear-gradient(135deg,var(--gold),var(--gold-light),var(--gold));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:17px 32px;border-radius:100px;text-decoration:none;box-shadow:0 4px 24px rgba(212,168,83,0.4);max-width:360px;margin:0 auto 12px;}
 .pay-note{font-size:11px;color:rgba(255,255,255,0.35);}
 
-/* PAYMENT BOX */
-.pay-box{margin-top:18px;background:var(--white);border-radius:15px;border:1px solid var(--border);padding:28px 26px;text-align:center;}
-.pay-box-title{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:700;margin-bottom:6px;}
-.pay-box-sub{font-size:13px;color:var(--muted);margin-bottom:22px;line-height:1.7;}
-.pay-main{display:block;background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:17px;font-weight:700;padding:17px 28px;border-radius:100px;text-decoration:none;box-shadow:0 4px 20px rgba(212,168,83,0.35);margin-bottom:14px;max-width:340px;margin-left:auto;margin-right:auto;}
-.test-box{background:#fff8ee;border:1px dashed var(--gold);border-radius:12px;padding:14px 16px;margin-top:4px;}
-.test-label{font-size:10px;font-weight:700;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;}
-.pay-test{display:block;background:var(--ink);color:var(--gold);font-family:'Noto Serif TC',serif;font-size:14px;font-weight:700;padding:12px 22px;border-radius:100px;text-decoration:none;max-width:280px;margin:0 auto 8px;}
-.test-hint{font-size:11px;color:var(--muted);line-height:1.6;}
-.ssl-note{font-size:11px;color:var(--muted);margin-top:14px;}
+
 
 @media(max-width:480px){
   .card{padding:26px 18px;}
@@ -203,24 +194,16 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
     </ul>
     <a class="btn-pay" id="upsell-pay-btn" href="https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00" target="_blank">以 HK$48 解鎖「你的專屬完整日本物業 MBTI 分析報告」！</a>
     <div class="pay-note">&#x1F512; 安全付款 &nbsp;·&nbsp; 信用卡 / PayMe / FPS</div>
-  </div>
-
-  <!-- PAYMENT -->
-  <div class="pay-box" id="pay-section">
-    <div class="pay-box-title">&#x1F4B3; 付款</div>
-    <div class="pay-box-sub">付款後系統將自動發送你的專屬完整報告到你的登記電郵。</div>
-    <a class="pay-main" id="pay-main-btn" href="https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00" target="_blank">
-      &#x1F4B3; 立即以 HK$48 付款解鎖報告
-    </a>
-    <div class="test-box">
-      <div class="test-label">&#x1F9EA; 測試模式（測試完成後移除）</div>
-      <a class="pay-test" id="pay-test-btn" href="https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01" target="_blank">
+    <div style="margin-top:14px;background:#1a1a2e;border:1px dashed rgba(212,168,83,0.4);border-radius:12px;padding:14px 16px;text-align:center;">
+      <div style="font-size:10px;font-weight:700;color:var(--gold);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">&#x1F9EA; 測試模式（測試完成後移除）</div>
+      <a id="pay-test-btn" href="https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01" target="_blank" style="display:block;background:rgba(212,168,83,0.15);color:var(--gold);font-family:'Noto Serif TC',serif;font-size:14px;font-weight:700;padding:11px 22px;border-radius:100px;text-decoration:none;border:1px solid rgba(212,168,83,0.4);max-width:280px;margin:0 auto 8px;">
         &#x1F9EA; 以 HK$4 測試付款
       </a>
-      <div class="test-hint">測試信用卡：4242 4242 4242 4242<br>任何未來日期 · 任何 CVC</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);line-height:1.6;">測試信用卡：4242 4242 4242 4242<br>任何未來日期 · 任何 CVC</div>
     </div>
-    <div class="ssl-note">&#x1F512; 由 Stripe 安全加密處理 · 不儲存你的信用卡資料</div>
   </div>
+
+
 </section>
 
 <script>
@@ -229,27 +212,36 @@ var SHEET = 'https://script.google.com/macros/s/AKfycbwc_w7lg1aJSspx0mBFpzA5kRf5
 
 function saveToSheet(data) {
   if (!SHEET || SHEET.indexOf('script.google.com') < 0) return;
-  // Method 1: fetch no-cors
+  var params = 'action=' + encodeURIComponent(data._action || 'new')
+    + '&name=' + encodeURIComponent(data.name || '')
+    + '&email=' + encodeURIComponent(data.email || '')
+    + '&mbti=' + encodeURIComponent(data.mbti_type || '')
+    + '&mbti_key=' + encodeURIComponent(data.mbti_key || '')
+    + '&score=' + encodeURIComponent(data.finance_score || '')
+    + '&answers=' + encodeURIComponent((data.answers || '').substring(0, 300));
+
+  // Method 1: Image beacon GET (most reliable, bypasses CORS)
+  try {
+    var img = new Image();
+    img.src = SHEET + '?' + params;
+  } catch(e1) {}
+
+  // Method 2: fetch no-cors POST (backup)
   try {
     fetch(SHEET, {
       method: 'POST',
       mode: 'no-cors',
-      headers: {'Content-Type': 'text/plain'},
       body: JSON.stringify(data)
     });
-  } catch(e1) {}
-  // Method 2: GET beacon via Image (bypasses sandbox restrictions)
-  try {
-    var params = 'action=' + (data._action || 'new')
-      + '&name=' + encodeURIComponent(data.name || '')
-      + '&email=' + encodeURIComponent(data.email || '')
-      + '&mbti=' + encodeURIComponent(data.mbti_type || '')
-      + '&mbti_key=' + encodeURIComponent(data.mbti_key || '')
-      + '&score=' + encodeURIComponent(data.finance_score || '')
-      + '&answers=' + encodeURIComponent((data.answers || '').substring(0, 200));
-    var img = new Image();
-    img.src = SHEET + '?' + params;
   } catch(e2) {}
+
+  // Method 3: script tag (ultimate fallback for sandboxed environments)
+  try {
+    var s = document.createElement('script');
+    s.src = SHEET + '?' + params + '&callback=x';
+    document.head.appendChild(s);
+    setTimeout(function(){ if(s.parentNode) s.parentNode.removeChild(s); }, 3000);
+  } catch(e3) {}
 }
 
 // ── STATE ──
@@ -472,21 +464,19 @@ function showResult() {
   document.getElementById('r-fin-score').textContent = finScore + '/100';
   document.getElementById('r-fin-label').textContent = finLevel.range + '｜' + finLevel.label;
 
-  // Build Stripe payment URLs with customer data embedded
-  // These params are passed back via Stripe success URL redirect
+  // Build Stripe payment URLs
+  // SUCCESS URL = Apps Script doGet with all customer data
+  // Stripe will redirect to this URL after successful payment
   var mainURL = 'https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00';
   var testURL = 'https://buy.stripe.com/5kQ28qeRT9pc4aHaqU0gw01';
   var encodedEmail = encodeURIComponent(uEmail);
   var encodedName = encodeURIComponent(uName);
   var finLevelKey = finScore <= 39 ? 'level1' : finScore <= 59 ? 'level2' : finScore <= 74 ? 'level3' : finScore <= 89 ? 'level4' : 'level5';
-  // client_reference_id carries mbti type (read by Stripe webhook)
-  // utm params carry finance data (passed back in success URL)
   var params = '?prefilled_email=' + encodedEmail
     + '&client_reference_id=' + typeKey
     + '&utm_content=' + finScore
     + '&utm_term=' + finLevelKey
-    + '&utm_source=' + encodedName
-    + '&utm_campaign=' + encodedEmail;
+    + '&utm_source=' + encodedName;
   document.getElementById('pay-main-btn').href = mainURL + params;
   document.getElementById('pay-test-btn').href = testURL + params;
   document.getElementById('upsell-pay-btn').href = mainURL + params;
@@ -545,10 +535,9 @@ function checkPaymentReturn() {
       + '<div style="font-size:13px;color:rgba(255,255,255,0.55);line-height:1.9;">'
       + '&#x1F4EC; 請稍等數分鐘查看電郵<br>'
       + '&#x1F4C1; 如未收到，請查看垃圾郵件箱<br>'
-      + '&#x1F4F1; 如有問題請 WhatsApp：<strong style="color:#d4a853;">+852 9759 4689</strong>'
+      + '如有問題請電郵：<em>crystalcheung.worldwide@gmail.com</em>'
       + '</div>'
       + '</div>'
-      + '<div style="font-size:11px;color:rgba(255,255,255,0.25);">Crystal桃桃&#x1F3E0; 日本物業投資顧問</div>'
       + '</div></div>';
   } catch(e) {}
 }
