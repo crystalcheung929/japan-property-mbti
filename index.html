@@ -235,13 +235,6 @@ function saveToSheet(data) {
     });
   } catch(e2) {}
 
-  // Method 3: script tag (ultimate fallback for sandboxed environments)
-  try {
-    var s = document.createElement('script');
-    s.src = SHEET + '?' + params + '&callback=x';
-    document.head.appendChild(s);
-    setTimeout(function(){ if(s.parentNode) s.parentNode.removeChild(s); }, 3000);
-  } catch(e3) {}
 }
 
 // ── STATE ──
@@ -447,7 +440,7 @@ function showResult() {
     var sel = answers[i].length > 0 ? answers[i].map(function(a){return letters[a];}).join('+') : '-';
     ansStr += 'Q'+(i+1)+':'+sel+(i<24?', ':'');
   }
-  saveToSheet({_action:'update',timestamp:new Date().toISOString(),name:uName,email:uEmail,mbti_type:t.name,mbti_key:typeKey,finance_score:finScore,answers:ansStr});
+  
 
   // Render
   document.getElementById('r-icon').innerHTML = t.icon;
