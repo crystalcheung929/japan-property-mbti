@@ -1,543 +1,539 @@
-// ══════════════════════════════════════════════════════════════════
-//  日本物業 MBTI — 完整後端 v3（貼上此檔案替換 Apps Script 全部內容）
-//  功能：登記記錄 + 測試完成更新 + Stripe付款確認 + 自動發報告電郵
-//  [!]️  部署設定：執行身份「我」，存取權「所有人」，每次修改後選「新版本」
-// ══════════════════════════════════════════════════════════════════
-
-// ======================================================
-//  貼上後只需修改以下 2 個位置，再儲存 + 部署新版本
-// ======================================================
-const CONFIG = {
-  SENDER_NAME:  'Crystal桃桃|小資買樓 → 實測收租 × 升值 × 移居',
-  SENDER_EMAIL: 'crystalcheung.worldwide@gmail.com',
-  CONTACT_INFO: 'crystalcheung.worldwide@gmail.com',
-};
-// ======================================================
-
-
-// ══ 主入口 POST ════════════════════════════════════════════════
-function doPost(e) {
-  try {
-    const raw = e.postData.contents;
-    const data = JSON.parse(raw);
-
-    // ── Stripe Webhook (checkout.session.completed) ──
-    if (data.type === 'checkout.session.completed') {
-      const session = data.data && data.data.object ? data.data.object : {};
-      const email = session.customer_details && session.customer_details.email
-        ? session.customer_details.email
-        : (session.customer_email || '');
-      const name = session.customer_details && session.customer_details.name
-        ? session.customer_details.name
-        : '投資者';
-      const amount = session.amount_total ? session.amount_total / 100 : 48;
-
-      if (!email) return json({ status:'error', msg:'no email' });
-
-      // Get MBTI from client_reference_id (set by quiz when user clicks pay)
-      // If not available, search Sheet by BOTH emails (quiz email may differ from Stripe email)
-      let mbtiKey = session.client_reference_id || '';
-      let finScore = '60';
-      let finLevel = 'level3';
-      let reportName = name;
-
-      try {
-        const sheet = getSheet();
-        const lastRow = sheet.getLastRow();
-        // Search sheet for ANY recent completed test (last 10 rows)
-        const searchFrom = Math.max(2, lastRow - 10);
-        for (let i = lastRow; i >= searchFrom; i--) {
-          const rowMbti = sheet.getRange(i, 5).getValue();
-          const rowStatus = sheet.getRange(i, 8).getValue();
-          const rowName = sheet.getRange(i, 2).getValue();
-          const scoreCell = sheet.getRange(i, 6).getValue();
-          if (rowMbti && rowStatus && rowStatus.toString().includes('完成')) {
-            if (!mbtiKey) mbtiKey = rowMbti;
-            if (scoreCell) finScore = String(scoreCell).replace('/100', '');
-            if (rowName) reportName = rowName;
-            break;
-          }
-        }
-      } catch(e) { Logger.log('Sheet lookup error: ' + e); }
-
-      if (!mbtiKey) mbtiKey = 'rental';
-      const scoreNum = parseInt(finScore) || 60;
-      finLevel = scoreNum <= 39 ? 'level1' : scoreNum <= 59 ? 'level2' : scoreNum <= 74 ? 'level3' : scoreNum <= 89 ? 'level4' : 'level5';
-
-      handlePayment({ email, name: reportName, mbti_key: mbtiKey, finance_score: finScore, finance_level: finLevel, amount });
-      return json({ status:'ok', type:'stripe_webhook', email, mbtiKey });
-    }
-
-    // ── Internal actions ──
-    if (data._action === 'stripe_paid')  return handlePayment(data);
-    if (data._action === 'update')       return handleUpdate(data);
-    return handleNewRecord(data);
-
-  } catch(err) {
-    return json({ status:'error', msg: err.toString() });
-  }
-}
-
-// ══ 主入口 GET ══════════════════════════════════════════════════
-// Handles two types of GET requests:
-// 1. Data beacon: ?action=new&name=X&email=X&mbti=X&score=X
-// 2. Payment confirm: ?paid=1&email=X&mbti=X&score=X&level=X&name=X
-function doGet(e) {
-  try {
-    const p = e.parameter;
-
-    // ── CASE 1: Payment confirmation ──
-    if (p.paid === '1' && p.email) {
-      const ok = sendReport(p.email, p.name || '投資者', p.mbti || 'rental', p.score || '60', p.level || 'level3');
-      const sheet = getSheet();
-      for (let i = sheet.getLastRow(); i >= 2; i--) {
-        if (sheet.getRange(i,3).getValue() === p.email) {
-          sheet.getRange(i,9).setValue('HK$48 已付款');
-          sheet.getRange(i,8).setValue('已付款完成');
-          sheet.getRange(i,10).setValue(ok ? '已發 ' + hkNow() : '發送失敗');
-          sheet.getRange(i,1,1,10).setBackground('#e8f4fd');
-          break;
-        }
-      }
-      return HtmlService.createHtmlOutput(
-        '<html><head><meta charset="UTF-8">'
-        + '<style>*{box-sizing:border-box;}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;font-family:Georgia,serif;text-align:center;padding:40px 20px;}'
-        + '.box{max-width:480px;}.icon{font-size:56px;margin-bottom:20px;}.title{font-size:26px;font-weight:700;color:#d4a853;margin-bottom:14px;}'
-        + '.msg{font-size:15px;color:rgba(255,255,255,0.8);line-height:2;margin-bottom:20px;}.note{font-size:13px;color:rgba(255,255,255,0.4);line-height:1.9;}'
-        + 'em{color:#d4a853;font-style:normal;}</style></head>'
-        + '<body><div class="box">'
-        + '<div class="icon">&#x2705;</div>'
-        + '<div class="title">付款成功！</div>'
-        + '<div class="msg">請查看發送到你電郵的<br><em>「你的專屬完整日本物業 MBTI 分析報告」</em></div>'
-        + '<div class="note">請稍等數分鐘查看電郵<br>如未收到，請查看垃圾郵件箱<br>如有問題請電郵：<em>crystalcheung.worldwide@gmail.com</em></div>'
-        + '</div></body></html>'
-      ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    }
-
-    // ── CASE 2: Data collection beacon (GET from image src) ──
-    if (p.email) {
-      const action = p.action || 'new';
-      const sheet = getSheet();
-
-      if (action === 'update') {
-        // Update existing row
-        for (let i = sheet.getLastRow(); i >= 2; i--) {
-          if (sheet.getRange(i,3).getValue() === p.email) {
-            sheet.getRange(i,4).setValue(p.mbti || '');
-            sheet.getRange(i,5).setValue(p.mbti_key || '');
-            sheet.getRange(i,6).setValue(p.score ? p.score + '/100' : '');
-            sheet.getRange(i,7).setValue(p.answers || '');
-            sheet.getRange(i,8).setValue('完成測試');
-            sheet.getRange(i,1,1,10).setBackground('#e8f5e9');
-            break;
-          }
-        }
-      } else {
-        // New registration
-        const isPending = !p.mbti || p.mbti === '';
-        sheet.appendRow([
-          hkNow(), p.name || '', p.email, p.mbti || '', p.mbti_key || '',
-          p.score ? p.score + '/100' : '', p.answers || '',
-          isPending ? '登記中' : '完成測試', '', ''
-        ]);
-        const r = sheet.getLastRow();
-        sheet.getRange(r,1,1,10).setBackground(isPending ? '#fffde7' : '#e8f5e9');
-      }
-    }
-
-    // Return JSONP or empty for image beacon
-    const cb = p.callback || p.cb;
-    if (cb) {
-      return ContentService.createTextOutput(cb + '({})').setMimeType(ContentService.MimeType.JAVASCRIPT);
-    }
-    return ContentService.createTextOutput('').setMimeType(ContentService.MimeType.TEXT);
-
-  } catch(err) {
-    return ContentService.createTextOutput('error: ' + err.toString()).setMimeType(ContentService.MimeType.TEXT);
-  }
-}
-
-
-// ══ 1. 新登記 / 完成登記 ════════════════════════════════════════
-function handleNewRecord(d) {
-  const sheet = getSheet();
-  const isPending = !d.mbti_type || d.mbti_type.includes('未完成');
-  const status = isPending ? '登記中' : '完成測試';
-  sheet.appendRow([
-    hkNow(), d.name||'', d.email||'', d.mbti_type||'', d.mbti_key||'',
-    d.finance_score !== '' && d.finance_score !== undefined ? d.finance_score+'/100' : '',
-    d.answers||'', status, '', ''
-  ]);
-  const r = sheet.getLastRow();
-  sheet.getRange(r,1,1,10).setBackground(isPending ? '#fffde7' : '#e8f5e9');
-  return json({ status:'ok', action:'added', row:r });
-}
-
-
-// ══ 2. 測試完成 → 更新同一行 ════════════════════════════════════
-function handleUpdate(d) {
-  const sheet = getSheet();
-  for (let i = sheet.getLastRow(); i >= 2; i--) {
-    if (sheet.getRange(i,3).getValue() === d.email &&
-        sheet.getRange(i,8).getValue().includes('登記')) {
-      sheet.getRange(i,1).setValue(hkNow());
-      sheet.getRange(i,4).setValue(d.mbti_type||'');
-      sheet.getRange(i,5).setValue(d.mbti_key||'');
-      sheet.getRange(i,6).setValue(d.finance_score !== undefined ? d.finance_score+'/100' : '');
-      sheet.getRange(i,7).setValue(d.answers||'');
-      sheet.getRange(i,8).setValue('完成測試');
-      sheet.getRange(i,1,1,10).setBackground('#e8f5e9');
-      return json({ status:'ok', action:'updated', row:i });
-    }
-  }
-  return handleNewRecord(d); // 找不到就新增
-}
-
-
-// ══ 3. Stripe 付款確認 → 更新Sheet + 發報告電郵 ═════════════════
-function handlePayment(d) {
-  const sheet = getSheet();
-  // 更新付款狀態 - 找最近完成測試的記錄（因為付款email可能跟登記email不同）
-  var updated = false;
-  for (let i = sheet.getLastRow(); i >= 2; i--) {
-    const rowEmail = sheet.getRange(i,3).getValue();
-    const rowStatus = sheet.getRange(i,8).getValue();
-    // Match by email OR find most recent completed test
-    if (rowEmail === d.email || 
-        (rowStatus && rowStatus.toString().indexOf('完成') >= 0 && !updated)) {
-      sheet.getRange(i,9).setValue('HK$'+(d.amount||48)+' 已付');
-      sheet.getRange(i,8).setValue('已付款');
-      sheet.getRange(i,1,1,10).setBackground('#e8f4fd');
-      updated = true;
-      if (rowEmail === d.email) break; // exact match, stop
-    }
-  }
-  // 發電郵
-  const ok = sendReport(d.email, d.name||'投資者', d.mbti_key, d.finance_score, d.finance_level);
-  // 記錄發送結果
-  for (let i = sheet.getLastRow(); i >= 2; i--) {
-    if (sheet.getRange(i,3).getValue() === d.email) {
-      sheet.getRange(i,10).setValue(ok ? '[Email] 已發 '+hkNow() : '[X] 失敗');
-      break;
-    }
-  }
-  return json({ status:'ok', emailSent:ok });
-}
-
-
-// ══ 4. 生成 + 發送報告電郵 ══════════════════════════════════════
-function sendReport(email, name, mbtiKey, finScore, finLevel) {
-  try {
-    const t = typeData(mbtiKey);
-    const f = finData(finLevel, parseInt(finScore)||60);
-    const score = parseInt(finScore)||60;
-    const subject = `【你的專屬完整日本物業 MBTI 分析報告】${t.name}`;
-
-    GmailApp.sendEmail(email, subject, '', {
-      htmlBody: buildHTML(name, t, f, score),
-      name: CONFIG.SENDER_NAME,
-      replyTo: CONFIG.SENDER_EMAIL
-    });
-    return true;
-  } catch(e) { Logger.log(e); return false; }
-}
-
-function buildHTML(name, t, f, score) {
-  const bar = Math.min(score,100);
-  const sec = (n, title, body) => `
-<tr><td>
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#1a1a2e,#2c1a3a);">
-  <tr><td style="padding:22px 32px;">
-    <table cellpadding="0" cellspacing="0"><tr>
-      <td style="width:38px;height:38px;background:rgba(212,168,83,.15);border:1px solid rgba(212,168,83,.35);border-radius:9px;text-align:center;vertical-align:middle;font-family:Georgia,serif;font-size:15px;font-weight:700;color:#d4a853;">${n}</td>
-      <td style="padding-left:12px;"><div style="font-size:9px;letter-spacing:.16em;color:rgba(255,255,255,.4);text-transform:uppercase;">第${n}部份</div><div style="font-family:Georgia,serif;font-size:17px;font-weight:700;color:#fff;">${title}</div></td>
-    </tr></table>
-  </td></tr></table>
-  <div class="section-body" style="padding:26px 32px 30px;">${body}</div>
-</td></tr>`;
-
-  return `<!DOCTYPE html><html lang="zh-HK"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>你的日本物業 MBTI 測試</title>
 <style>
-@media only screen and (max-width:600px){
-  .email-wrap{width:100%!important;}
-  .strat-grid{display:block!important;}
-  .strat-grid td{display:block!important;width:100%!important;margin-bottom:10px;}
-  .section-body{padding:18px 16px 20px!important;}
-  .section-head td{padding:18px 16px!important;}
-  .fin-score{font-size:48px!important;}
-  .cover-title{font-size:20px!important;}
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700;900&family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+:root{--ink:#1a1a2e;--gold:#d4a853;--gold-light:#f0c96e;--cream:#faf8f3;--white:#ffffff;--muted:#6b6b7a;--border:#e8e0d0;--red:#c0392b;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--ink);line-height:1.7;}
+
+/* HERO */
+.hero{background:var(--ink);padding:60px 24px 52px;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 60% 0%,#3a1a2e 0%,transparent 60%),radial-gradient(ellipse at 20% 100%,#1a2e3a 0%,transparent 55%);pointer-events:none;}
+.torii{font-size:52px;display:block;margin-bottom:14px;position:relative;}
+.hero h1{font-family:'Noto Serif TC',serif;font-size:clamp(26px,6vw,46px);font-weight:900;color:#fff;line-height:1.25;margin-bottom:18px;position:relative;}
+.hero h1 span{color:var(--gold);}
+.hero-sub{font-size:clamp(14px,3.5vw,16px);color:rgba(255,255,255,0.7);max-width:540px;margin:0 auto 28px;position:relative;line-height:1.8;}
+.hero-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:600px;margin:0 auto 32px;position:relative;}
+.hero-tag{background:rgba(255,255,255,0.08);border:1px solid rgba(212,168,83,0.3);border-radius:100px;padding:7px 15px;font-size:13px;color:rgba(255,255,255,0.75);}
+.btn-gold{display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold-light),var(--gold));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:16px 36px;border-radius:100px;border:none;cursor:pointer;box-shadow:0 4px 24px rgba(212,168,83,0.4);position:relative;}
+
+/* REGISTER */
+#sec-register{display:none;max-width:500px;margin:44px auto;padding:0 20px;}
+.card{background:var(--white);border-radius:20px;padding:36px 32px;box-shadow:0 2px 40px rgba(26,26,46,0.08);border:1px solid var(--border);}
+.card-title{font-family:'Noto Serif TC',serif;font-size:17px;font-weight:700;margin-bottom:22px;text-align:center;line-height:1.5;}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;}
+.field input{width:100%;padding:13px 15px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;font-family:'Noto Sans TC',sans-serif;color:var(--ink);background:var(--cream);outline:none;}
+.field input:focus{border-color:var(--gold);}
+.btn-dark{width:100%;background:linear-gradient(135deg,var(--ink),#2c2c4a);color:#fff;font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:15px;border:none;border-radius:12px;cursor:pointer;margin-top:6px;}
+
+/* QUIZ */
+#sec-quiz{display:none;max-width:620px;margin:0 auto;padding:28px 20px 60px;background:var(--ink);min-height:100vh;}
+.prog-wrap{background:rgba(255,255,255,0.15);border-radius:100px;height:6px;margin-bottom:24px;overflow:hidden;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--red));border-radius:100px;transition:width 0.4s;}
+.q-label{font-size:12px;color:rgba(255,255,255,0.45);text-align:right;margin-bottom:8px;}
+.q-hint{font-size:12px;color:rgba(212,168,83,0.8);text-align:center;margin-bottom:14px;}
+.q-text{font-family:'Noto Serif TC',serif;font-size:clamp(16px,4.5vw,21px);font-weight:700;color:#fff;margin-bottom:22px;line-height:1.5;}
+.opts{display:flex;flex-direction:column;gap:11px;}
+.opt{background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:15px 18px;font-size:14px;font-family:'Noto Sans TC',sans-serif;color:var(--ink);cursor:pointer;text-align:left;display:flex;align-items:center;gap:13px;line-height:1.5;}
+.opt.sel{border-color:var(--gold);background:#fff8ee;font-weight:600;}
+.opt-letter{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--border);font-size:12px;font-weight:700;flex-shrink:0;}
+.opt.sel .opt-letter{background:var(--gold);color:var(--ink);}
+.quiz-nav{margin-top:24px;display:flex;gap:12px;}
+.btn-back{background:transparent;border:1.5px solid rgba(255,255,255,0.2);border-radius:10px;padding:12px 20px;font-size:14px;font-family:'Noto Sans TC',sans-serif;color:rgba(255,255,255,0.6);cursor:pointer;}
+.btn-next{flex:1;background:var(--white);color:var(--ink);border:none;border-radius:10px;padding:13px 28px;font-size:15px;font-family:'Noto Serif TC',serif;font-weight:700;cursor:pointer;}
+.btn-next:disabled{opacity:0.3;cursor:default;}
+
+/* LOADING */
+#sec-loading{display:none;text-align:center;padding:80px 20px;background:var(--ink);min-height:100vh;}
+.dots{display:inline-flex;gap:8px;}
+.dots span{width:10px;height:10px;border-radius:50%;background:var(--gold);animation:bounce 1.2s infinite;}
+.dots span:nth-child(2){animation-delay:.2s;}
+.dots span:nth-child(3){animation-delay:.4s;}
+@keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-14px);opacity:1;}}
+.loading-text{margin-top:20px;color:rgba(255,255,255,0.6);font-size:14px;}
+
+/* RESULT */
+#sec-result{display:none;max-width:660px;margin:0 auto;padding:28px 20px 60px;}
+.result-hero{background:var(--ink);border-radius:22px;padding:40px 32px 36px;text-align:center;margin-bottom:20px;}
+.r-icon{font-size:60px;display:block;margin-bottom:10px;}
+.r-type-label{font-size:11px;letter-spacing:.18em;color:var(--gold);text-transform:uppercase;margin-bottom:8px;}
+.r-name{font-family:'Noto Serif TC',serif;font-size:clamp(22px,5.5vw,34px);font-weight:900;color:#fff;margin-bottom:4px;}
+.r-en{font-size:13px;color:rgba(255,255,255,0.45);}
+.rsec{background:var(--white);border-radius:15px;padding:26px 26px;margin-bottom:14px;border:1px solid var(--border);}
+.rsec h3{font-family:'Noto Serif TC',serif;font-size:15px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;gap:7px;}
+.rsec p{font-size:14px;color:#333;line-height:1.85;}
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+.tag{background:#fff8ee;border:1px solid #e8d5aa;border-radius:100px;padding:5px 13px;font-size:12px;color:#8a6a20;font-weight:500;}
+.note{background:#fff4f4;border-left:3px solid var(--red);border-radius:0 9px 9px 0;padding:12px 15px;font-size:13px;color:#7a2020;margin-top:10px;}
+
+/* FINANCE TEASER */
+.fin-teaser{background:var(--white);border-radius:15px;padding:20px 24px;margin-bottom:14px;border:1px solid var(--border);text-align:center;}
+.fin-score-big{font-family:'Noto Serif TC',serif;font-size:40px;font-weight:900;color:var(--gold);}
+
+/* UPSELL */
+.upsell{background:linear-gradient(145deg,#1a1a2e 0%,#2c1a3a 50%,#1a2a3a 100%);border-radius:22px;padding:36px 28px;text-align:center;margin-top:20px;border:1px solid rgba(212,168,83,0.2);}
+.upsell-badge{display:inline-block;background:rgba(212,168,83,0.15);border:1px solid rgba(212,168,83,0.35);border-radius:100px;padding:5px 18px;font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--gold);text-transform:uppercase;margin-bottom:18px;}
+.upsell-emojis{font-size:26px;display:block;margin-bottom:12px;}
+.upsell-title{font-family:'Noto Serif TC',serif;font-size:clamp(18px,4.5vw,26px);font-weight:900;color:#fff;margin-bottom:10px;line-height:1.3;}
+.upsell-sub{font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:22px;line-height:1.8;max-width:440px;margin-left:auto;margin-right:auto;}
+.upsell-list{list-style:none;text-align:left;max-width:380px;margin:0 auto 24px;display:flex;flex-direction:column;gap:9px;}
+.upsell-list li{font-size:13px;color:rgba(255,255,255,0.8);display:flex;align-items:flex-start;gap:10px;line-height:1.6;}
+.upsell-num{display:inline-block;background:rgba(212,168,83,0.18);border:1px solid rgba(212,168,83,0.35);border-radius:6px;padding:2px 7px;font-size:11px;color:var(--gold);font-weight:700;flex-shrink:0;white-space:nowrap;}
+.price-row{margin-bottom:20px;}
+.price-now{font-family:'Noto Serif TC',serif;font-size:38px;font-weight:900;color:var(--gold);}
+.btn-pay{display:block;background:linear-gradient(135deg,var(--gold),var(--gold-light),var(--gold));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:17px 32px;border-radius:100px;text-decoration:none;box-shadow:0 4px 24px rgba(212,168,83,0.4);max-width:360px;margin:0 auto 12px;}
+.pay-note{font-size:11px;color:rgba(255,255,255,0.35);}
+
+
+
+@media(max-width:480px){
+  .card{padding:26px 18px;}
+  .rsec{padding:20px 16px;}
+  .upsell{padding:28px 18px;}
+  .result-hero{padding:32px 20px 28px;}
 }
 </style>
 </head>
-<body style="margin:0;padding:0;background:#f0ede6;font-family:Helvetica,Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0ede6;padding:28px 12px;">
-<tr><td align="center">
-<table width="100%" style="max-width:580px;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 4px 36px rgba(26,26,46,.12);">
+<body>
 
-<!-- COVER -->
-<tr><td style="background:linear-gradient(160deg,#1a1a2e 0%,#2c1a3a 45%,#1a2a3a 100%);padding:44px 36px;text-align:center;">
-  <div style="font-size:44px;margin-bottom:14px;">&#9961;️</div>
-  <div style="font-size:10px;letter-spacing:.2em;color:#d4a853;text-transform:uppercase;margin-bottom:10px;">你的專屬分析報告</div>
-  <div style="font-family:Georgia,serif;font-size:24px;font-weight:700;color:#fff;line-height:1.3;margin-bottom:18px;">你的專屬完整<br>日本物業 MBTI 分析報告</div>
-  <div style="width:44px;height:2px;background:linear-gradient(90deg,transparent,#d4a853,transparent);margin:0 auto 18px;"></div>
-  <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:5px;">分析對象</div>
-  <div style="font-family:Georgia,serif;font-size:17px;font-weight:700;color:#d4a853;margin-bottom:14px;">${esc(name)}</div>
-  <span style="background:rgba(212,168,83,.12);border:1px solid rgba(212,168,83,.3);border-radius:100px;padding:7px 18px;font-size:13px;color:rgba(255,255,255,.85);">${t.icon} <strong style="color:#d4a853;">${t.name}</strong></span>
-</td></tr>
-
-<!-- PART 1 -->
-${sec('1','你的日本物業 MBTI 類型',`
-  <div style="background:linear-gradient(135deg,#1a1a2e,#2c1a3a);border-radius:12px;padding:24px;text-align:center;margin-bottom:18px;">
-    
-    <div style="font-size:10px;letter-spacing:.16em;color:#d4a853;text-transform:uppercase;margin-bottom:6px;">你的 MBTI 類型</div>
-    <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#fff;margin-bottom:3px;">${t.name}</div>
-    <div style="font-size:12px;color:rgba(255,255,255,.4);">${t.en}</div>
-  </div>
-  <div>${t.props.map(p=>`<span style="display:inline-block;background:#fff8ee;border:1px solid #e8d5aa;border-radius:100px;padding:5px 13px;font-size:12px;color:#8a6a20;font-weight:500;margin:3px;">${p}</span>`).join('')}</div>
-`)}
-
-<!-- PART 2 -->
-${sec('2','你的人格分析',`<div style="font-size:14px;line-height:1.9;color:#333;">${t.personality.replace(/\n\n/g,'<br><br>').replace(/\n/g,'<br>')}</div>`)}
-
-<!-- PART 3 -->
-${sec('3','你的日本物業投資優勢與盲點',`
-  <div style="margin-bottom:16px;">
-    <div style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#6b6b7a;text-transform:uppercase;margin-bottom:9px;">[strength] 你的投資優勢</div>
-    <div style="font-size:13px;line-height:1.85;color:#333;">${t.strength.replace(/\n/g,'<br>')}</div>
-  </div>
-  <div style="height:1px;background:#e8e0d0;margin:16px 0;"></div>
-  <div>
-    <div style="font-size:10px;font-weight:700;letter-spacing:.12em;color:#6b6b7a;text-transform:uppercase;margin-bottom:9px;">[!]️ 性格盲點</div>
-    <div style="background:#fff4f4;border-left:3px solid #c0392b;border-radius:0 9px 9px 0;padding:12px 16px;font-size:13px;line-height:1.85;color:#333;">${t.blind.replace(/\n/g,'<br>')}</div>
-  </div>
-`)}
-
-<!-- PART 4 -->
-${sec('4','你適合／不適合策略',`
-  <table class="strat-grid" width="100%" cellpadding="0" cellspacing="8"><tr>
-    <td style="background:#f0faf4;border:1.5px solid #a8d5b5;border-radius:10px;padding:16px;vertical-align:top;width:48%;">
-      <div style="font-size:9px;font-weight:700;letter-spacing:.12em;color:#2d7a4a;text-transform:uppercase;margin-bottom:8px;">[OK] 適合你的策略</div>
-      <div style="font-size:12px;line-height:1.8;color:#333;">${t.goodStrategy.replace(/\n/g,'<br>')}</div>
-    </td>
-    <td width="4%"></td>
-    <td style="background:#fff4f4;border:1.5px solid #f0b8b8;border-radius:10px;padding:16px;vertical-align:top;width:48%;">
-      <div style="font-size:9px;font-weight:700;letter-spacing:.12em;color:#9a2020;text-transform:uppercase;margin-bottom:8px;">[X] 不建議策略</div>
-      <div style="font-size:12px;line-height:1.8;color:#333;">${t.badStrategy.replace(/\n/g,'<br>')}</div>
-    </td>
-  </tr></table>
-`)}
-
-<!-- PART 5: FINANCE SCORE -->
-${sec('5','你的日本物業財務準備度',`
-  <div style="background:linear-gradient(135deg,#1a1a2e,#2c1a3a);border-radius:12px;padding:28px 20px;text-align:center;margin-bottom:18px;">
-    <div style="font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:8px;">你的財務準備度評分</div>
-    <div class="fin-score" style="font-family:Georgia,serif;font-size:60px;font-weight:700;color:#d4a853;line-height:1;">${score}</div>
-    <div style="font-size:14px;color:rgba(255,255,255,.4);margin-bottom:14px;">/ 100</div>
-    <div style="background:rgba(255,255,255,.1);border-radius:100px;height:7px;max-width:260px;margin:0 auto 14px;overflow:hidden;">
-      <div style="height:100%;width:${bar}%;background:linear-gradient(90deg,#d4a853,#f0c96e);border-radius:100px;"></div>
+<!-- HERO -->
+<section id="sec-hero">
+  <div class="hero">
+    <span class="torii">&#x26E9;&#xFE0F;</span>
+    <h1>你的<span>日本物業</span><br>MBTI 是什麼？</h1>
+    <p class="hero-sub">你有沒有想過，原來只需小資本，就可以在海外做業主、坐享租金收入？<br><br>但你知道自己適合哪個日本城市嗎？你的個性又適合哪種物業類型？你現時的財務狀況，是否真的準備好了？</p>
+    <div class="hero-tags">
+      <span class="hero-tag">&#x1F4B4; 如何以小資金入場？</span>
+      <span class="hero-tag">&#x1F4CC; 選哪個城市最穩？</span>
+      <span class="hero-tag">&#x1F3E0; 你的個性適合哪種物業？</span>
+      <span class="hero-tag">&#x1F4CA; 你的財務準備好了嗎？</span>
+      <span class="hero-tag">&#x1F511; 如何開始第一步？</span>
     </div>
-    <span style="background:rgba(212,168,83,.15);border:1px solid rgba(212,168,83,.35);border-radius:100px;padding:5px 18px;font-size:12px;font-weight:700;color:#d4a853;">${f.range}｜${f.label}</span>
+    <button class="btn-gold" onclick="goRegister()">立即開始「你的日本物業 MBTI 測試」吧！</button>
   </div>
-  <div style="font-size:13px;line-height:1.9;color:#333;">${f.text.replace(/\n\n/g,'<br><br>').replace(/\n/g,'<br>')}</div>
-`)}
+</section>
 
-<!-- PART 6 -->
-${sec('6','適合你的城市方向',
-  t.cities.map(c=>`
-  <div style="display:flex;gap:12px;background:#faf8f3;border:1px solid #e8e0d0;border-radius:10px;padding:12px 14px;margin-bottom:9px;">
-    <div style="font-family:Georgia,serif;font-size:15px;font-weight:700;color:#d4a853;min-width:28px;">${c.rank}</div>
-    <div><div style="font-size:14px;font-weight:700;margin-bottom:2px;">${c.name}</div><div style="font-size:12px;color:#6b6b7a;line-height:1.5;">${c.desc}</div></div>
-  </div>`).join('')
-)}
+<!-- REGISTER -->
+<section id="sec-register">
+  <div class="card">
+    <div class="card-title">現在就立即開始「你的專屬日本物業的MBTI測試」吧！</div>
+    <div class="field">
+      <label>你的名稱 *</label>
+      <input type="text" id="inp-name" placeholder="例：Mandy / 陳大文" />
+    </div>
+    <div class="field">
+      <label>你的電郵地址 *</label>
+      <input type="email" id="inp-email" placeholder="example@gmail.com" />
+    </div>
+    <button class="btn-dark" onclick="goQuiz()">開始測試 →</button>
+  </div>
+</section>
 
-<!-- PART 7 -->
-${sec('7','下一步實戰流程提示',
-  t.nextStep.map((s,i)=>`
-  <div style="display:flex;gap:14px;margin-bottom:${i<t.nextStep.length-1?'18px':'0'};">
-    <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#1a1a2e,#2c1a3a);border:2px solid #d4a853;text-align:center;line-height:30px;font-family:Georgia,serif;font-size:13px;font-weight:700;color:#d4a853;flex-shrink:0;">${i+1}</div>
-    <div style="margin-top:5px;"><div style="font-size:13px;font-weight:700;margin-bottom:3px;">${s.t}</div><div style="font-size:12px;color:#6b6b7a;line-height:1.7;">${s.d}</div></div>
-  </div>`).join('')
-)}
+<!-- QUIZ -->
+<section id="sec-quiz">
+  <div class="prog-wrap"><div class="prog-fill" id="prog" style="width:5%"></div></div>
+  <div class="q-label" id="qlabel">問題 1 / 20</div>
+  <div class="q-hint">&#x1F4A1; 可選擇多個答案</div>
+  <div class="q-text" id="qtext"></div>
+  <div class="opts" id="opts"></div>
+  <div class="quiz-nav">
+    <button class="btn-back" id="btn-back" onclick="goPrev()">← 返回</button>
+    <button class="btn-next" id="btn-next" onclick="goNext()" disabled>繼續 →</button>
+  </div>
+</section>
 
-<!-- FOOTER -->
-<tr><td style="background:linear-gradient(145deg,#1a1a2e,#2c1a3a);padding:36px 28px;text-align:center;">
-  <div style="font-size:28px;margin-bottom:10px;">&#9961;️</div>
-  <div style="font-family:Georgia,serif;font-size:16px;font-weight:700;color:#fff;margin-bottom:7px;">${CONFIG.SENDER_NAME}</div>
-  <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:16px;">${CONFIG.CONTACT_INFO}</div>
-  <div style="font-size:10px;color:rgba(255,255,255,.3);line-height:1.7;">此報告根據你的測試答案自動生成，屬個人專屬分析。<br>內容僅供參考，不構成投資建議。投資涉及風險，決定前請諮詢專業顧問。</div>
-</td></tr>
+<!-- LOADING -->
+<div id="sec-loading">
+  <div style="padding-top:30vh;">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <div class="loading-text">正在分析你的投資個性...</div>
+  </div>
+</div>
 
-</table></td></tr></table>
-</body></html>`;
-}
+<!-- RESULT -->
+<section id="sec-result">
+  <div class="result-hero">
+    <span class="r-icon" id="r-icon"></span>
+    <div class="r-type-label">你的日本物業 MBTI 類型</div>
+    <div class="r-name" id="r-name"></div>
+    <div class="r-en" id="r-en"></div>
+  </div>
+  <div class="rsec"><h3>你的性格特質</h3><p id="r-traits"></p></div>
+  <div class="rsec"><h3>適合你的日本物業</h3><div class="tags" id="r-props"></div></div>
+  <div class="rsec"><h3>你最大的優勢</h3><p id="r-strength"></p></div>
+  <div class="rsec"><h3>需要注意</h3><div class="note" id="r-caution"></div></div>
 
+  <!-- Finance Score Teaser -->
+  <div class="fin-teaser">
+    <p style="font-size:13px;color:#6b6b7a;margin-bottom:8px;">你的日本物業財務準備度</p>
+    <div class="fin-score-big" id="r-fin-score"></div>
+    <p style="font-size:12px;color:#6b6b7a;margin-top:6px;" id="r-fin-label"></p>
+    <p style="font-size:12px;color:#9a6a20;margin-top:10px;">解鎖完整報告，查看你的完整財務分析與建議 &#x1F447;</p>
+  </div>
 
-// ══ 所有8種 MBTI 類型資料 ════════════════════════════════════════
-function typeData(key) {
-  const all = {
-    rental:   { icon:'[收租]', name:'穩健收租型',    en:'The Rental Guardian',   props:['長租公寓','市中心細單位','已有租客物業','人口穩定城市'], personality:`你屬於一位重視安全感及穩定性的投資者。相比起短時間賺取高回報，你更重視長期穩定的現金流，以及資產能夠持續為你帶來被動收入。\n\n你做任何重大決定之前，通常都會花時間搜集資料，希望自己已經了解所有風險後才開始行動。你不喜歡太多不確定性，亦不喜歡每天需要花大量時間管理投資項目。\n\n對你而言，投資並不是賭博，而是一項長遠財務規劃。你希望透過日本物業建立第二收入來源，增加生活上的安全感，同時慢慢累積資產。`, strength:`你的最大優勢是理性及紀律。由於你不容易衝動買樓，因此較少因情緒而作出錯誤決定。你通常願意花時間研究市場，了解不同地區的人口、租金水平及管理成本，因此長遠而言，犯錯機會亦較低。\n\n另外，你重視現金流及風險管理，代表即使市場出現波動，你亦較有能力持續持有物業，而不會因短期變化而輕易出售資產。`, blind:`由於你比較謹慎，所以有時候會過度分析。你可能會睇太多樓盤仍然未決定，不斷等待更好的價格，希望完全沒有風險才開始，或擔心維修、空置或政策改變。\n\n結果往往導致：「研究了兩年，但仍然未買第一間樓。」世界上並不存在完全沒有風險的投資。過分追求完美，有時反而會錯失好機會。`, goodStrategy:`***** 市中心長租公寓\n**** 已有租客物業\n**** 成熟城市收租盤\n\n特別適合長租策略、現金流策略、小型住宅單位、人口穩定城市。`, badStrategy:`X 鄉郊空屋翻新\nX 偏遠度假屋\nX 高度依賴 Airbnb 的物業\nX 大型翻新工程\nX 無管理公司的自主管理模式`, cities:[{rank:'1.',name:'福岡',desc:'人口穩定，租賃需求高，非常適合首次海外投資者。'},{rank:'2.',name:'大阪',desc:'流通性高，管理公司選擇多，長租需求穩定。'},{rank:'3.',name:'名古屋',desc:'中部重要城市，長期持有回報穩健。'},{rank:'4.',name:'札幌',desc:'北海道最大城市，租賃市場成熟。'},{rank:'5.',name:'神戶',desc:'生活品質高，住宅需求穩定。'}], nextStep:[{t:'鎖定目標城市',d:'從福岡、大阪、名古屋中選擇一個開始深入研究，比較不同區域的租金水平及管理費。'},{t:'建立篩選標準',d:'制定你的買樓條件：預算上限、最低租金回報率、樓齡限制、必須有管理公司。'},{t:'聯絡日本地產公司',d:'尋找有服務香港投資者經驗的地產公司，索取符合條件的樓盤資料。'},{t:'了解購買流程及費用',d:'了解日本物業購買的完整步驟，包括司法書士費、登記費、印花稅等。'},{t:'設定決策期限',d:'當找到符合 80% 條件的物業，就進入認真考慮階段。記住：完美物業並不存在。'}] },
-    action:   { icon:'[行動]', name:'行動派投資型',   en:'The Action Investor',   props:['二手收租物業','舊樓翻新增值','增值型物業','現金流型物業'], personality:`你屬於典型的行動派。當你發現一個值得研究或者有潛力的機會時，你通常不會停留在「諗」的階段太耐，而是希望盡快開始，邊做邊學，從實戰中累積經驗。\n\n相比起不停睇資料，你更相信：「做一次，勝過研究一百次。」你對新事物抱持開放態度，不害怕未知，亦願意接受一定程度的風險。`, strength:`你的最大優勢，就是超強的執行力。很多投資者最大的問題不是沒有知識，而是永遠停留在研究階段。而你最大的不同是：你願意踏出第一步。\n\n另外，你通常適應能力強。即使買樓後遇到問題，你通常都能夠快速尋找解決方法。`, blind:`由於你行動速度快，因此有時容易太快決定、低估風險、因為「感覺不錯」而出手，沒有做足資料搜集，或高估自己管理能力。\n\n日本物業涉及稅務、法律、維修、管理公司、地區人口等多個範疇。對你而言：「快」很重要，但「檢查清單」更加重要。`, goodStrategy:`***** 二手收租物業\n**** 舊樓翻新增值\n**** 現金流型物業\n**** 增值型物業`, badStrategy:`X 完全被動式投資\nX 只追求超低風險產品\nX 完全沒有研究便出手`, cities:[{rank:'1.',name:'福岡',desc:'流通性高，選盤數量多，適合行動派快速出手。'},{rank:'2.',name:'大阪',desc:'增值空間大，二手物業市場活躍。'},{rank:'3.',name:'名古屋',desc:'工業城市，穩定人口，有增值潛力。'},{rank:'4.',name:'京都',desc:'翻新物業有特色溢價空間。'},{rank:'5.',name:'札幌',desc:'北部城市，具備發展潛力的二手市場。'}], nextStep:[{t:'建立投資檢查清單',d:'在每次出手前：地區人口研究、租金回報計算、管理費確認、維修預算預留。'},{t:'尋找可信賴的地產夥伴',d:'建立一個可靠的日本地產團隊，包括地產公司、管理公司和司法書士。'},{t:'設定出價標準',d:'釐清你的最高預算、最低接受回報率及可接受的最差物業狀況。'},{t:'快速決策但不衝動',d:'當找到符合標準的物業，在72小時內作決定，但必須先完成基本盡職審查。'},{t:'買入後立即規劃管理',d:'物業成交前已安排好管理公司，確保租客入住不中斷。'}] },
-    lifestyle:{ icon:'[生活]', name:'日本生活夢想型', en:'The Lifestyle Dreamer', props:['自住＋投資雙用途','半移居型物業','退休規劃型物業','旅遊區收租'], personality:`對你而言，買日本樓從來不只是投資。你心中一直有一個日本夢。可能是退休後每年到日本住幾個月；可能是希望將來半移居日本；又或者只是單純地希望在人生某個階段，能夠擁有一個屬於自己的日本家。\n\n相比起純粹追求回報率，你更重視生活品質、居住環境、當地文化、自然景觀、社區氣氛與生活體驗。對你來說，房子不只是資產，更是一種生活方式的延伸。`, strength:`你的最大優勢，就是你比一般投資者更了解自己真正想要什麼。你買的不只是物業，而是一個夢想。因此你通常持有時間較長，不容易因短期市場波動而恐慌，更重視物業本身質素。`, blind:`你的最大盲點，就是太容易因為「喜歡」而買樓。例如因為景色漂亮而決定購買、因為附近有溫泉而忽略交通問題、因為古民家很有特色而忽略維修成本。\n\n每當你非常喜歡某個物業時，請先停一停，問自己：「如果我不是買給自己住，我還會買嗎？」`, goodStrategy:`***** 自住 + 投資雙用途物業\n**** 半移居型物業\n**** 退休規劃型物業\n*** 旅遊區收租物業`, badStrategy:`X 純數字導向高現金流物業\nX 偏遠鄉郊空屋\nX 極低價老舊物業\nX 大型翻新項目`, cities:[{rank:'1.',name:'沖繩',desc:'適合喜歡慢活、海景及退休生活人士。'},{rank:'2.',name:'京都',desc:'適合喜歡日本傳統文化及歷史的人。'},{rank:'3.',name:'金澤',desc:'適合希望擁有生活感及文化氛圍的人。'},{rank:'4.',name:'福岡',desc:'適合想兼顧生活品質與交通便利的人。'},{rank:'5.',name:'北海道',desc:'札幌／小樽附近，自然景觀與生活品質兼備。'}], nextStep:[{t:'釐清你的生活目標',d:'確定你希望每年在日本居住多少時間，直接影響你選擇自住為主還是出租為主的物業。'},{t:'用兩個角度評估物業',d:'每看一個物業，同時問：「我喜歡嗎？」和「市場喜歡嗎？」兩個都是「是」才考慮。'},{t:'研究目標城市的生活機能',d:'了解超市、醫院、交通等日常生活條件，不只看景觀和文化。'},{t:'計算雙重使用成本',d:'計算自住期間不能收租的機會成本，確保整體財務計劃仍然合理。'},{t:'先試住再購買',d:'先在目標城市租住1-2個月，真正體驗當地生活，再決定是否購買。'}] },
-    airbnb:   { icon:'[創業]', name:'Airbnb創業型',  en:'The Host Explorer',     props:['Airbnb民宿','主題式住宿','特色一戶建','度假型物業'], personality:`你天生就帶有創業家精神。相比起每個月穩定收租，你更喜歡透過自己的創意、設計、服務和營運能力，將一間普通的房子變成一門生意。\n\n對你而言，物業不只是一項投資，而是一個品牌、一個體驗，甚至是一個夢想事業。`, strength:`你的最大優勢，就是創意與執行力。Airbnb 並不是單純提供住宿，而是提供體驗。而你天生就懂得思考客人想要什麼、如何提升入住體驗、如何增加評價、如何打造特色空間。如果經營得當，你的回報有機會比傳統長租更高。`, blind:`你的最大盲點，就是太容易只看到機會，而忽略風險。你可能會高估入住率、低估營運成本、過分樂觀估算收入，或忽略法規限制。\n\n日本各地對民宿規定不同，因此法規研究十分重要。`, goodStrategy:`***** Airbnb 民宿經營\n**** 主題式住宿\n**** 特色一戶建\n**** 度假型物業`, badStrategy:`X 完全被動式長租\nX 純現金流導向收租盤\nX 未了解法規便開始經營 Airbnb`, cities:[{rank:'1.',name:'沖繩',desc:'穩定旅遊需求，海景度假及家庭旅客市場大。'},{rank:'2.',name:'京都',desc:'文化體驗型住宿，外國旅客多，吸引力強。'},{rank:'3.',name:'大阪',desc:'國際旅客多，城市旅遊市場成熟。'},{rank:'4.',name:'北海道',desc:'滑雪及自然旅遊市場，有淡旺季分別。'},{rank:'5.',name:'福岡',desc:'亞洲短途旅客市場，鄰近韓國及中國。'}], nextStep:[{t:'研究目標地區民泊法規',d:'了解你選擇的城市或地區的民泊許可要求、住宿天數限制及申請流程。'},{t:'制定運營模式',d:'決定自己管理還是委託民泊管理公司，計算兩者的成本差異。'},{t:'建立清潔及維修團隊',d:'在買樓前先建立可靠的清潔公司、維修人員聯絡。'},{t:'研究平台定價策略',d:'了解 Airbnb 及其他平台的定價工具，計劃淡旺季的定價策略。'},{t:'計算真實回報',d:'以保守的60%入住率計算年收入，再扣除清潔費、管理費及平台費，確保仍有合理回報。'}] },
-    growth:   { icon:'[增值]', name:'資產增值型',     en:'The Growth Investor',   props:['資產配置型','再開發區','市區核心物業','長期持有'], personality:`你屬於典型的長線投資者。對你而言，日本物業並不只是收租工具，而是整個財富配置的一部分。你通常已經接觸過其他投資，例如股票、ETF、基金、海外物業或生意投資。\n\n你明白：「真正的財富，並不是只依靠單一資產。」`, strength:`你的最大優勢，就是擁有全局觀。很多投資者只會看單一物業的租金回報，但你會從更宏觀角度思考人口變化、經濟發展、區域再開發、貨幣風險及長期趨勢。`, blind:`你的最大盲點是太著重數據，而忽略實際營運。由於你習慣分析數字，因此有時容易過度依賴回報率、低估管理難度、忽略租客需求，或高估增值空間。`, goodStrategy:`***** 資產配置型投資\n**** 再開發區投資\n**** 市區核心物業\n**** 長期持有策略`, badStrategy:`X 純度假用途物業\nX 完全以個人喜好作決定\nX 極偏遠鄉郊物業\nX 短期炒賣模式`, cities:[{rank:'1.',name:'東京',desc:'長期資本增值及資產保值的首選，流通性最高。'},{rank:'2.',name:'大阪',desc:'平衡現金流與增值，外國投資者比例高。'},{rank:'3.',name:'福岡',desc:'成長型城市，人口增長穩定，適合首次海外投資。'},{rank:'4.',name:'名古屋',desc:'中部最大工業城市，中長線增值穩健。'},{rank:'5.',name:'札幌',desc:'適合作為多元化配置的一部分。'}], nextStep:[{t:'釐清日本物業在你資產組合的角色',d:'決定日本物業佔整體資產的比例，以及主要目的是現金流、增值還是避險。'},{t:'選擇目標城市及物業類型',d:'根據你的投資目標，鎖定1個主要城市及物業類型，避免過度分散。'},{t:'研究匯率風險管理',d:'了解港幣兌日圓的長期趨勢，及如何利用分批匯款分散匯率風險。'},{t:'建立日本地產專業團隊',d:'尋找有豐富海外投資者服務經驗的地產公司、管理公司及稅務顧問。'},{t:'制定長線持有計劃',d:'設定至少10年的持有目標，並計算在不同市場情況下的整體回報。'}] },
-    safety:   { icon:'[安全]', name:'保守安全型',    en:'The Safety Planner',    props:['長租收租','已有租客物業','現金購買','市中心住宅'], personality:`你是一位非常重視安全感的投資者。對你而言，投資的首要目標並不是賺取最高回報，而是「避免犯下重大錯誤」。\n\n你不喜歡冒險，更不希望因為投資而影響現有生活質素。在作出任何重大財務決定之前，你通常都會花大量時間做資料搜集。`, strength:`你的最大優勢，就是風險管理能力極高。由於你做事非常謹慎，因此很少衝動買樓、很少因情緒而投資、容易建立穩定現金流，財務壓力通常較低。\n\n你重視緊急資金、現金流、安全邊際，因此長遠來說，你往往能夠穩定地累積財富。`, blind:`你的最大盲點，就是過分追求安全。世界上並不存在完全沒有風險的投資。由於你希望所有事情都準備好才開始，因此很容易長期停留在研究階段。\n\n請記住：不投資，本身也是一種風險。因為通脹會持續侵蝕你的購買力。`, goodStrategy:`***** 長租收租策略\n**** 已有租客物業\n**** 現金購買策略\n**** 市中心住宅物業`, badStrategy:`X Airbnb\nX 鄉郊空屋\nX 高槓桿投資\nX 大型翻新項目\nX 法拍屋`, cities:[{rank:'1.',name:'福岡',desc:'特別適合首次海外物業投資，管理簡單，風險相對較低。'},{rank:'2.',name:'大阪',desc:'追求穩定現金流及流通性，容易找到已有租客物業。'},{rank:'3.',name:'名古屋',desc:'重視長期持有，人口穩定，租賃市場成熟。'},{rank:'4.',name:'札幌',desc:'穩健型收租市場，管理公司選擇多。'},{rank:'5.',name:'東京成熟住宅區',desc:'資產保值能力最強，適合保守型長期持有。'}], nextStep:[{t:'為自己設定明確的投資條件',d:'例如：預算不超過100萬港元、現金流必須為正數、必須位於人口穩定城市、必須由管理公司管理。'},{t:'找已有租客的物業',d:'「已有租客」的物業可以立即開始收租，沒有空置期的不確定性，最適合你的性格。'},{t:'確認管理公司質素',d:'在買入前，深入了解管理公司的收費、服務範圍及過往記錄。'},{t:'預留充足應急資金',d:'確保買樓後仍有至少6-12個月租金的應急資金，用於應付空置期或突發維修。'},{t:'設定行動期限',d:'給自己設定一個決策日期，例如「6個月內完成第一次睇盤」。'}] },
-    research: { icon:'[研究]', name:'深度研究型',     en:'The Research Analyst',  props:['數據導向收租','長線投資','人口成長城市','現金流分析型'], personality:`你是一位天生的分析者。對你而言，買日本樓絕對不是一個可以衝動決定的事情。在正式出手之前，你通常已經看過數十甚至上百個樓盤、比較過不同城市、研究過租金回報率、了解過人口數據。\n\n你喜歡用數據說話，你不容易被銷售技巧或情緒影響。你相信「投資成功，不靠運氣，而靠資料。」`, strength:`你的最大優勢，就是極強的分析能力。由於你願意花時間研究，因此較少衝動買樓、較容易發現潛在風險，能夠從大量資料中找到真正有價值的資訊。`, blind:`你的最大盲點，就是「分析過度（Analysis Paralysis）」。由於你希望掌握所有資料，所以經常出現睇完一個城市，又想研究另一個城市的循環。\n\n很多深度研究型投資者最大的問題並不是缺乏知識，而是知識太多，但行動太少。`, goodStrategy:`***** 數據導向收租策略\n**** 長線投資策略\n**** 人口成長城市投資\n**** 現金流分析型投資`, badStrategy:`X 純感覺買樓\nX 只因為喜歡日本而購買\nX 完全依賴別人推薦\nX 永遠等待「最完美」的物業`, cities:[{rank:'1.',name:'福岡',desc:'數據透明，市場成熟，特別適合分析型投資者作為第一站。'},{rank:'2.',name:'名古屋',desc:'適合喜歡深入研究不同區域及人口結構的投資者。'},{rank:'3.',name:'大阪',desc:'數據豐富，適合平衡增值與現金流的分析。'},{rank:'4.',name:'札幌',desc:'適合喜歡研究冷門市場及數據的投資者。'},{rank:'5.',name:'神戶',desc:'市場較小，但數據可分析性高。'}], nextStep:[{t:'設定「停止研究」的條件',d:'當一個物業符合預算、人口穩定、現金流為正、管理容易，就進入出價階段。'},{t:'建立你的投資評分表',d:'製作一個評分系統（滿分100分），讓每個物業都可以客觀比較，當達到70分就考慮出手。'},{t:'給自己設定決策期限',d:'每個物業的研究期限不超過2週，到期必須作出「買」或「不買」的決定。'},{t:'開始真實睇盤',d:'從網上研究轉移到實際聯絡地產公司、索取實際樓盤資料。'},{t:'買入第一間物業',d:'記住：第一間物業永遠不會是完美的，但它會給你最寶貴的實戰經驗。'}] },
-    future:   { icon:'[準備]', name:'未來投資準備型', en:'The Future Investor',   props:['財務準備策略','長期儲蓄','建立投資基礎','小額開始'], personality:`恭喜你，你已經踏出了大部分人都未開始的第一步。雖然你目前未必已經準備好立即購買日本物業，但你對日本物業投資充滿興趣，而且已經開始主動搜尋資料。\n\n你現時可能仍然處於人生或財務規劃的重要階段，例如正在努力儲蓄、剛開始接觸投資，或希望未來移居海外。你屬於典型的「未來規劃型投資者」。`, strength:`你的最大優勢，就是你願意提早準備。很多人直到真正想買樓時，才開始學習。但你不同，你願意提早做功課、了解風險、規劃財務、研究不同選項。這種長期思維，將會大大增加你未來成功的機會。`, blind:`你的最大盲點是：永遠覺得自己未準備好。你可能經常想「等我儲多一點錢先」、「等收入穩定一點先」、「等我學多一些先」。結果一年又一年過去，但始終沒有真正開始。\n\n請記住：學習非常重要，但行動更加重要。`, goodStrategy:`***** 財務準備策略\n**** 長期儲蓄策略\n**** 建立投資基礎策略\n*** 小額開始策略`, badStrategy:`X 衝動買樓\nX 高槓桿投資\nX 超出預算的物業\nX 未做規劃便立即進場`, cities:[{rank:'1.',name:'福岡',desc:'入場門檻相對較低，海外投資者容易管理，最適合作為第一站研究。'},{rank:'2.',name:'大阪',desc:'流通性高，資料豐富，容易學習和了解市場。'},{rank:'3.',name:'名古屋',desc:'穩健市場，適合未來制定投資計劃時參考。'},{rank:'4.',name:'札幌',desc:'長租需求穩定，適合作為第一個目標研究城市。'},{rank:'5.',name:'神戶',desc:'生活品質高，可作為未來移居或投資的選項之一。'}], nextStep:[{t:'設定你的買樓目標日期',d:'例如「24個月後完成第一次日本樓睇盤」，有明確目標才能反推需要的準備。'},{t:'制定儲蓄計劃',d:'計算你需要多少首期（通常為物業價格的30-40%）加上購買費用，反推每月需要儲蓄多少。'},{t:'建立6個月緊急基金',d:'在開始認真準備買樓前，先確保有6個月生活費的緊急基金，這是財務安全的基礎。'},{t:'開始系統性學習',d:'每週研究3個日本樓盤，追蹤你感興趣城市的租金和樓價趨勢，建立市場感覺。'},{t:'聯絡地產公司了解流程',d:'先聯絡1-2家有服務香港投資者的日本地產公司，了解完整購買流程。'}] }
-  };
-  return all[key] || all['rental'];
-}
-
-
-// ══ 財務準備度5級模組 ══════════════════════════════════════════
-function finData(level, score) {
-  const m = {
-    level1:{ range:'0-39分', label:'暫未適合入場 / 暫不建議買樓型',  text:`你的日本物業財務準備度屬於「基礎建立階段」。這並不代表你永遠不適合買日本樓，而是代表現階段最重要的任務不是立即入場，而是先建立穩定的財務底盤。日本物業除了樓價本身，還會涉及稅務、管理費、維修費、空置期及海外匯款等成本。如果未有足夠儲蓄或應急資金，太早買樓反而容易造成壓力。\n\n現階段建議你先建立 6 個月生活費的緊急基金，同時培養每月固定儲蓄及投資習慣。你可以先從學習日本物業流程、城市選擇、長租與 Airbnb 分別開始。當你的現金流更穩定、儲蓄更充足時，再進入實際睇盤階段會更安全。` },
-    level2:{ range:'40-59分', label:'需要建立基礎型',    text:`你的財務準備度顯示，你已經開始具備日本物業投資的基礎意識，但暫時仍未完全適合立即出手。你可能已有一定儲蓄或投資習慣，但可動用資金、應急基金或風險承受能力仍需要加強。\n\n這個階段最適合做的是「有方向地學習」，而不是急於買樓。你可以開始比較不同城市，例如福岡、大阪、名古屋、札幌等，了解不同地區的入場門檻、租金回報及管理難度。同時，你亦應該開始設定買樓時間表，例如12個月、18個月或24個月後正式入場。` },
-    level3:{ range:'60-74分', label:'基礎不錯但需補強型', text:`你的財務準備度已經進入「初步入場準備期」。這代表你已經具備一定資金基礎、儲蓄能力及投資意識，可以開始更認真地研究日本物業市場。你未必需要立即買樓，但已經可以開始睇盤、比較城市、計算租金回報，以及了解購買流程。\n\n這個階段最重要的是將「想買」變成「有標準地篩選」。你需要清楚知道自己的預算範圍、可接受風險、目標城市及投資模式。建議你開始建立日本物業檢查清單，包括樓齡、管理費、修繕積立金、租客情況、交通距離、人口趨勢及管理公司質素。` },
-    level4:{ range:'75-89分', label:'接近準備完成型', text:`你的財務準備度已經相當成熟，代表你具備較完整的資金、儲蓄能力、投資經驗及風險承受能力。這個階段的你已經可以由「學習」轉向「實際執行」。\n\n接下來最重要的不再只是看更多資料，而是開始接觸真正的實戰流程，例如尋找可信任的日本地產公司、了解身份認證、研究海外匯款、比較管理公司及確認稅務安排。你亦可以開始建立自己的出價標準，例如最高預算、最低租金回報率、可接受樓齡及地區條件。你的最大風險可能不是準備不足，而是過度研究而遲遲未行動。` },
-    level5:{ range:'90-100分', label:'已準備好行動型', text:`你的財務準備度非常高，代表你已經具備落實日本物業投資的能力。你可能已經有穩定收入、足夠可動用資金、投資經驗，以及面對空置或維修成本的心理準備。\n\n這個階段的你不應再停留於「了解一下」，而是可以開始進入真正行動階段。建議你鎖定 1–2 個目標城市，開始睇實際樓盤，並建立日本買樓團隊，包括地產公司、管理公司、司法書士及稅務支援。對你來說，第一間日本物業不只是投資，更是建立海外資產配置的重要一步。` }
-  };
-  if (!level || !m[level]) {
-    if (score<=39) level='level1'; else if(score<=59) level='level2';
-    else if(score<=74) level='level3'; else if(score<=89) level='level4'; else level='level5';
-  }
-  return m[level];
-}
-
-
-// ══ 工具 ═════════════════════════════════════════════════════════
-function getSheet() {
-  const SHEET_ID = '1-2MN4idYTWDTth1QOKD-bmQVqVOT981D9lS5C0WsrRY';
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const sheet = ss.getSheets()[0];
-  if (sheet.getLastRow() === 0) {
-    const h = ['提交時間(HK)','姓名','電郵','MBTI類型','MBTI Key','財務準備度','20題答案','測試狀態','付款狀態','報告已發'];
-    sheet.appendRow(h);
-    const hr = sheet.getRange(1,1,1,h.length);
-    hr.setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#d4a853');
-    sheet.setFrozenRows(1);
-    [160,100,200,130,80,100,400,130,130,130].forEach((w,i)=>sheet.setColumnWidth(i+1,w));
-  }
-  return sheet;
-}
-function hkNow() { return new Date().toLocaleString('zh-HK',{timeZone:'Asia/Hong_Kong',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+  <!-- UPSELL -->
+  <div class="upsell">
+    <div class="upsell-badge">專屬優惠</div>
+    <span class="upsell-emojis">&#x2764;&#xFE0F; &#x1F3E0; &#x1F1EF;&#x1F1F5;</span>
+    <div class="upsell-title">以 HK$48 解鎖<br>「你的專屬完整日本物業<br>MBTI 分析報告」</div>
+    <p class="upsell-sub">完整 7 部份專屬分析，真正根據你的個性與財務狀況度身訂造的詳細分析報告。這份報告將幫你由「想買」變成「知道怎樣買」！</p>
+    <div style="font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;margin-bottom:13px;">你的專屬完整日本物業 MBTI 分析報告包含：</div>
+    <ul class="upsell-list">
+      <li><span class="upsell-num">第1部份</span> 你的日本物業 MBTI 類型</li>
+      <li><span class="upsell-num">第2部份</span> 你的人格分析</li>
+      <li><span class="upsell-num">第3部份</span> 你的日本物業投資優勢與盲點</li>
+      <li><span class="upsell-num">第4部份</span> 你適合／不適合策略</li>
+      <li><span class="upsell-num">第5部份</span> 你的日本物業財務準備度 XX/100（包括財務狀態分析與建議）</li>
+      <li><span class="upsell-num">第6部份</span> 適合你的城市方向</li>
+      <li><span class="upsell-num">第7部份</span> 下一步實戰流程提示</li>
+    </ul>
+    <a class="btn-pay" id="upsell-pay-btn" href="https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00" target="_blank">以 HK$48 解鎖「你的專屬完整日本物業 MBTI 分析報告」！</a>
+    <div class="pay-note">&#x1F512; 安全付款 &nbsp;·&nbsp; 信用卡 / PayMe / FPS</div>
+  </div>
 
 
-// ══ 測試（在 Apps Script 直接執行） ══════════════════════════════
-// ══ 定時觸發器 - 每5分鐘自動執行 ══════════════════════════════
-// 設定方法：Apps Script → 左側時鐘圖示(Triggers) → Add Trigger
-// 選 checkNewPayments → Time-driven → Minutes timer → Every 5 minutes
-function checkNewPayments() {
+</section>
+
+<script>
+// -- SHEET --
+// [已修正] 之前呢個URL指向緊一個唔同/舊嘅 Apps Script deployment，
+// 導致所有backend更新都冇實際生效。而家已改成正確嘅 Version 5 deployment URL。
+var SHEET = 'https://script.google.com/macros/s/AKfycbyFgcDLnVcFTruwlMpW2Q9sZ08m8IKYkj4LsDsDHK5bHmirVHW5pkaIi6DgP83_d6RD/exec';
+
+function saveToSheet(data) {
+  if (!SHEET || SHEET.indexOf('script.google.com') < 0) return;
+  var params = 'action=' + encodeURIComponent(data._action || 'new')
+    + '&name=' + encodeURIComponent(data.name || '')
+    + '&email=' + encodeURIComponent(data.email || '')
+    + '&mbti=' + encodeURIComponent(data.mbti_type || '')
+    + '&mbti_key=' + encodeURIComponent(data.mbti_key || '')
+    + '&score=' + encodeURIComponent(data.finance_score || '')
+    + '&answers=' + encodeURIComponent((data.answers || '').substring(0, 500));
+
+  // Method 1: Image beacon GET (most reliable, bypasses CORS)
   try {
-    // Check sheet for rows that are "完成測試" but haven't been paid/sent report
-    var sheet = getSheet();
-    var lastRow = sheet.getLastRow();
-    var now = new Date().getTime();
-    var fiveMinAgo = now - (5 * 60 * 1000);
-    
-    for (var i = lastRow; i >= 2; i--) {
-      var rowStatus = sheet.getRange(i, 8).getValue();
-      var rowPaid = sheet.getRange(i, 9).getValue();
-      var rowReportSent = sheet.getRange(i, 10).getValue();
-      var rowEmail = sheet.getRange(i, 3).getValue();
-      var rowMbti = sheet.getRange(i, 5).getValue();
-      var rowScore = sheet.getRange(i, 6).getValue();
-      var rowName = sheet.getRange(i, 2).getValue();
-      
-      // If paid but report not sent yet
-      if (rowPaid && rowPaid.toString().indexOf('已付') >= 0 && 
-          (!rowReportSent || rowReportSent === '')) {
-        if (rowEmail && rowMbti) {
-          var finScore = String(rowScore).replace('/100', '') || '60';
-          var scoreNum = parseInt(finScore) || 60;
-          var finLevel = scoreNum <= 39 ? 'level1' : scoreNum <= 59 ? 'level2' : 
-                         scoreNum <= 74 ? 'level3' : scoreNum <= 89 ? 'level4' : 'level5';
-          var ok = sendReport(rowEmail, rowName || '投資者', rowMbti, finScore, finLevel);
-          if (ok) {
-            sheet.getRange(i, 10).setValue('已發 ' + hkNow());
-            Logger.log('Report sent to: ' + rowEmail);
-          }
-        }
-      }
-    }
-  } catch(e) {
-    Logger.log('checkNewPayments error: ' + e);
-  }
+    var img = new Image();
+    img.src = SHEET + '?' + params;
+  } catch(e1) {}
+
+  // Method 2: fetch no-cors POST (backup)
+  try {
+    fetch(SHEET, {
+      method: 'POST',
+      mode: 'no-cors',
+      body: JSON.stringify(data)
+    });
+  } catch(e2) {}
+
 }
 
-// ══ 測試函數 - 在 Apps Script 直接執行 ══════════════════════════
-// testEmail: 直接發測試報告（測試電郵格式用）
-function testEmail() {
-  sendReport('crystalcheung.worldwide@gmail.com', 'Crystal', 'rental', 88, 'level4');
-  Logger.log('Test email sent!');
-}
+// -- STATE --
+var uName = '';
+var uEmail = '';
+var answers = [];
+var cur = 0;
+for (var i = 0; i < 25; i++) { answers.push([]); }
 
-// testPayment: 模擬完整付款流程（測試 Webhook 處理邏輯用）
-// 執行前先在 Google Sheet 確認有一行「完成測試」的記錄
-function testPayment() {
-  // 模擬 Stripe 發送的 checkout.session.completed 事件
-  var fakeSession = {
-    type: 'checkout.session.completed',
-    data: {
-      object: {
-        customer_details: {
-          email: 'crystalcheung.worldwide@gmail.com',
-          name: 'Crystal'
-        },
-        client_reference_id: 'rental',
-        amount_total: 4800,
-        metadata: {}
-      }
-    }
-  };
-  
-  // Process it the same way as real webhook
-  var session = fakeSession.data.object;
-  var email = session.customer_details.email;
-  var name = session.customer_details.name;
-  var mbtiKey = session.client_reference_id || 'rental';
-  var finScore = '88';
-  var finLevel = 'level4';
-  
-  var ok = sendReport(email, name, mbtiKey, finScore, finLevel);
-  Logger.log('testPayment result: ' + (ok ? 'SUCCESS - email sent!' : 'FAILED'));
-}
+// -- QUESTIONS --
+var QS = [
+  {q:'你買日本樓最主要原因是？',opts:['希望有被動收入','想退休或將來移居日本','想做Airbnb增加收入','純粹鍾意日本，想擁有一間屋']},
+  {q:'現時你大約有多少可投資資金？',opts:['少於50萬港元','50-100萬港元','100-300萬港元','300萬港元以上']},
+  {q:'如果物業空置6個月，你會？',opts:['非常焦慮','有少少擔心，但可以接受','可以接受，長遠睇','覺得屬正常投資風險']},
+  {q:'你願意花多少時間管理日本物業？',opts:['完全唔想理','每月花少量時間查看','願意主動參與','喜歡親自參與整個過程']},
+  {q:'現時你有其他投資嗎？',opts:['沒有任何投資','定期儲蓄','股票／ETF','已持有其他物業或生意']},
+  {q:'當你做投資決定時，你通常會？',opts:['很快行動','做少量資料搜集','做大量研究才決定','先問專家意見']},
+  {q:'如果有人推薦一個高回報投資，你通常會？',opts:['很有興趣立即了解','先做少量研究','詳細分析風險','非常保守，不容易行動']},
+  {q:'你對貸款的態度是？',opts:['不喜歡任何負債','可以接受少量貸款','認為適當槓桿可以加快財富增長','已有使用按揭或投資貸款經驗']},
+  {q:'你過去有沒有獨自處理大型財務決定？',opts:['從未','偶爾','經常','我通常主導家庭財務']},
+  {q:'你對日本哪種地區最感興趣？',opts:['東京、大阪等大城市','福岡、札幌等二線城市','沖繩、京都等旅遊區','鄉郊或度假地區']},
+  {q:'如果日本樓需要突然維修10萬日圓，你會？',opts:['覺得壓力很大','可以接受，但會心痛','認為屬正常成本','已預留維修基金']},
+  {q:'你目前的收入來源主要是？',opts:['單一工作收入','工作收入＋少量副業','多重收入來源','已有被動收入']},
+  {q:'你每月大約可以儲起多少錢？',opts:['少於港幣5,000','港幣5,000-15,000','港幣15,000-30,000','港幣30,000以上']},
+  {q:'當計劃一件重要事情時，你通常會？',opts:['邊做邊學','做基本計劃','做詳細規劃','做詳細規劃並準備後備方案']},
+  {q:'如果需要處理日文文件，你會？',opts:['非常抗拒','希望有人協助','願意慢慢學','願意主動研究及處理']},
+  {q:'你曾否到過日本？',opts:['從未去過','去過1-3次','去過很多次','曾長期生活或工作']},
+  {q:'你認為投資最重要的是？',opts:['安全','現金流','資產增值','自由與生活方式']},
+  {q:'如果日本政府政策改變，你會？',opts:['很擔心','希望有人提供建議','先了解再決定','相信長線策略']},
+  {q:'當遇到投資失敗時，你通常會？',opts:['很久都不敢再投資','會檢討後再嘗試','視為學費','立即調整策略再出發']},
+  {q:'如果現在出現一個合適日本物業，你會？',opts:['暫時未準備好','有興趣了解','願意半年內行動','已準備隨時出手']},
+  {q:'你現時每月收入狀況較接近哪一項？',opts:['收入不穩定，暫時難以預測','有收入，但每月剩餘不多','有穩定收入，能固定儲蓄','有穩定收入，並能同時儲蓄及投資','有多個收入來源／被動收入']},
+  {q:'你現時是否已有投資或資產配置經驗？',opts:['暫時未有投資或資產','有少量儲蓄','有股票／ETF／基金等投資','有股票／ETF／基金，亦有較穩定儲蓄','已有物業／海外資產／多元投資配置']},
+  {q:'如果突然失去收入，你現時儲備大約可以支持幾耐？',opts:['少於1個月','1-3個月','3-6個月','6-12個月','超過12個月']},
+  {q:'你現時的負債狀況較接近哪一項？',opts:['有較高信用卡債／私人貸款壓力','有分期或貸款，每月壓力較明顯','有負債，但仍可正常應付','只有低壓力負債，例如可控按揭／低息貸款','幾乎沒有高息負債']},
+  {q:'你過去是否有實際執行投資計劃的經驗？',opts:['仍停留在想法階段','有研究，但未真正開始','已開始投資，例如ETF／股票／基金','有持續投資習慣，並會定期檢視','已有買樓／海外資產／收租經驗']}
+];
 
-// testWebhookFromSheet: 讀取 Sheet 最新記錄並發送報告
-// 用於測試「付款後從 Sheet 查找 MBTI 並發報告」的完整流程
-function testWebhookFromSheet() {
-  var sheet = getSheet();
-  var lastRow = sheet.getLastRow();
-  var email = '';
-  var name = '';
-  var mbtiKey = 'rental';
-  var finScore = '60';
-  var finLevel = 'level3';
-  
-  // Find most recent completed test
-  for (var i = lastRow; i >= 2; i--) {
-    var rowStatus = sheet.getRange(i, 8).getValue();
-    if (rowStatus && rowStatus.toString().indexOf('完成') >= 0) {
-      email = sheet.getRange(i, 3).getValue();
-      name = sheet.getRange(i, 2).getValue();
-      mbtiKey = sheet.getRange(i, 5).getValue() || 'rental';
-      var scoreCell = sheet.getRange(i, 6).getValue();
-      if (scoreCell) finScore = String(scoreCell).replace('/100', '');
-      break;
+// -- TYPE SCORING MAP (per question, per option index) --
+var MAP = [
+  ['rental','lifestyle','airbnb','lifestyle'],
+  ['future','future','rental','growth'],
+  ['safety','rental','rental','action'],
+  ['rental','rental','action','airbnb'],
+  ['future','safety','growth','growth'],
+  ['action','action','research','safety'],
+  ['action','action','research','safety'],
+  ['safety','safety','growth','growth'],
+  ['future','safety','growth','growth'],
+  ['growth','rental','airbnb','lifestyle'],
+  ['future','rental','growth','safety'],
+  ['future','action','growth','growth'],
+  ['future','future','rental','growth'],
+  ['action','action','research','research'],
+  ['safety','rental','research','research'],
+  ['future','lifestyle','lifestyle','lifestyle'],
+  ['safety','rental','growth','lifestyle'],
+  ['safety','rental','research','rental'],
+  ['safety','rental','action','action'],
+  ['future','future','action','action'],
+  [],[],[],[],[]
+];
+
+// -- TYPES --
+var TYPES = {
+  rental:   {icon:'&#x1F3E0;',name:'穩健收租型',en:'The Rental Guardian',traits:'你做任何重大決定之前，都會先做好資料搜集，希望風險愈低愈好。相比短時間賺大錢，你更重視穩定現金流及長期資產增值。你做事比較踏實，不喜歡太多不確定性，亦不希望物業需要經常花時間處理。',props:['✅ 福岡','✅ 大阪','✅ 札幌','✅ 市中心細單位','✅ 長租物業'],strength:'你較少衝動買樓，長遠持有能力高，是最穩定的投資類型之一。',caution:'有時過分追求完美，可能錯失投資機會。建議為自己設定決策期限。'},
+  action:   {icon:'&#x1F680;',name:'行動派投資型',en:'The Action Investor',traits:'你屬於「先行動，再優化」型。當你認定一件事值得做，就會快速執行，不喜歡花太長時間研究。你敢於嘗試新事物，亦願意接受投資帶來的波動。',props:['✅ 增值潛力區域','✅ 法拍屋','✅ 翻新物業','✅ 二手物業'],strength:'行動力強，容易捉到市場機會，不會因為猶豫而錯失入市時機。',caution:'避免因為太快決定而忽略重要風險。建議每次行動前做基本盡職審查。'},
+  lifestyle:{icon:'&#x1F338;',name:'日本生活夢想型',en:'The Lifestyle Dreamer',traits:'你買日本樓，不只是為了賺錢。你真正嚮往的是日本生活方式，可能夢想退休、半移居，或者擁有一個屬於自己的日本家。你重視生活品質多於投資回報。',props:['✅ 京都','✅ 沖繩','✅ 金澤','✅ 北海道'],strength:'你對日本有高度熱情，更容易長期持有物業，不輕易因短期波動放棄。',caution:'不要因為「喜歡」而忽略投資基本面。記得做好財務分析再行動。'},
+  airbnb:   {icon:'&#x2708;&#xFE0F;',name:'Airbnb創業型',en:'The Host Explorer',traits:'你喜歡創造不同收入來源。相比長租，你更喜歡透過設計、營運、裝修及旅遊體驗，打造獨特住宿。你具有創業精神，亦願意投入時間經營。',props:['✅ 沖繩旅遊區','✅ 京都','✅ 大阪旅遊區','✅ 旅遊熱點'],strength:'有機會創造比長租更高的現金流，善於發掘市場空間。',caution:'短租涉及法規、營運及管理，需投入較多時間。必須了解各地區民泊法規。'},
+  growth:   {icon:'&#x1F4C8;',name:'資產增值型',en:'The Growth Investor',traits:'你將物業視為整體財富配置的一部分。你通常已經有股票、ETF或其他投資經驗，希望透過日本物業令資產更多元化。你重視回報率及資本增值。',props:['✅ 再開發區域','✅ 東京核心區','✅ 大阪核心區','✅ 人口增長城市'],strength:'具備投資思維，容易建立長期資產組合，懂得利用多元化分散風險。',caution:'不要只追求數字，而忽略實際管理成本及匯率風險。'},
+  safety:   {icon:'&#x1F6E1;&#xFE0F;',name:'保守安全型',en:'The Safety Planner',traits:'你非常重視財務安全。你不喜歡負債，希望做好所有準備才開始投資。你屬於非常理性及謹慎的人，凡事都要確認清楚才會踏出一步。',props:['✅ 現金購買物業','✅ 已有租客物業','✅ 管理成熟地區'],strength:'財務風險控制能力高，不容易做出衝動決定，資金安全感強。',caution:'有時過於保守，容易長期停留在觀望階段。建議為自己設定行動時間表。'},
+  research: {icon:'&#x1F50D;',name:'深度研究型',en:'The Research Analyst',traits:'你是典型的分析型人格。買樓之前，你可能已經看過幾十甚至上百個物業。你喜歡研究數據、人口、租金、空置率及市場趨勢，務求每個決定都有數據支持。',props:['✅ 高現金流地區','✅ 冷門但高回報城市','✅ 地方城市投資'],strength:'分析能力極高，較少犯低級錯誤，投資決策有充分根據。',caution:'避免因分析過多而遲遲未行動。研究是工具，行動才是目標。'},
+  future:   {icon:'&#x23F3;',name:'未來投資準備型',en:'The Future Investor',traits:'你對日本物業充滿興趣，但目前可能仍處於學習階段。原因可能是資金尚未準備好、對流程未夠熟悉、或希望了解更多再決定。這是很多投資者開始的第一步。',props:['✅ 建立儲蓄計劃','✅ 學習日本物業基本知識','✅ 了解買樓流程','✅ 制定投資目標'],strength:'你願意學習，代表你已經踏出第一步。知識就是你最大的資產。',caution:'不要只停留在學習，記得為自己設定行動時間日表，把計劃付諸實行。'}
+};
+
+// -- FINANCE --
+var FIN = [
+  {range:'0-39分',label:'暫不建議買樓型'},
+  {range:'40-59分',label:'需要建立基礎型'},
+  {range:'60-74分',label:'基礎不錯但需補強型'},
+  {range:'75-89分',label:'接近準備完成型'},
+  {range:'90-100分',label:'已準備好行動型'}
+];
+
+function calcFinScore() {
+  // Q21-25 (index 20-24): each option A-E worth 4/8/12/16/20 points
+  // Multi-select: take the HIGHEST selected option per question (most accurate financial signal)
+  var total = 0;
+  for (var i = 20; i <= 24; i++) {
+    var arr = answers[i];
+    if (arr && arr.length > 0) {
+      var maxOpt = 0;
+      for (var j = 0; j < arr.length; j++) { if (arr[j] > maxOpt) maxOpt = arr[j]; }
+      total += (maxOpt + 1) * 4;
     }
   }
-  
-  if (!email) {
-    Logger.log('ERROR: No completed test found in Sheet');
-    return;
-  }
-  
-  var scoreNum = parseInt(finScore) || 60;
-  finLevel = scoreNum <= 39 ? 'level1' : scoreNum <= 59 ? 'level2' : scoreNum <= 74 ? 'level3' : scoreNum <= 89 ? 'level4' : 'level5';
-  
-  Logger.log('Sending to: ' + email + ' | MBTI: ' + mbtiKey + ' | Score: ' + finScore);
-  var ok = sendReport(email, name, mbtiKey, finScore, finLevel);
-  Logger.log('Result: ' + (ok ? 'SUCCESS!' : 'FAILED'));
+  return Math.min(total, 100);
 }
+
+function getFinLevel(score) {
+  if (score <= 39) return FIN[0];
+  if (score <= 59) return FIN[1];
+  if (score <= 74) return FIN[2];
+  if (score <= 89) return FIN[3];
+  return FIN[4];
+}
+
+// -- NAVIGATION --
+function show(id) {
+  var ids = ['sec-hero','sec-register','sec-quiz','sec-loading','sec-result'];
+  for (var i = 0; i < ids.length; i++) {
+    document.getElementById(ids[i]).style.display = 'none';
+  }
+  document.getElementById(id).style.display = 'block';
+  window.scrollTo(0, 0);
+}
+
+function goRegister() {
+  show('sec-register');
+}
+
+function goQuiz() {
+  var name = document.getElementById('inp-name').value.trim();
+  var email = document.getElementById('inp-email').value.trim();
+  if (!name) { alert('請輸入你的名稱'); return; }
+  if (!email || email.indexOf('@') < 0) { alert('請輸入有效的電郵地址'); return; }
+  uName = name;
+  uEmail = email;
+  saveToSheet({timestamp:new Date().toISOString(),name:name,email:email,mbti_type:'(登記但未完成測試)',mbti_key:'',finance_score:'',answers:''});
+  cur = 0;
+  for (var i = 0; i < 25; i++) { answers[i] = []; }
+  renderQ();
+  show('sec-quiz');
+}
+
+function renderQ() {
+  var q = QS[cur];
+  var letters = ['A','B','C','D','E'];
+  document.getElementById('qlabel').textContent = '問題 ' + (cur+1) + ' / 25';
+  document.getElementById('prog').style.width = (((cur+1)/25)*100) + '%';
+  document.getElementById('qtext').textContent = (cur+1) + '. ' + q.q;
+  document.getElementById('btn-back').style.visibility = cur === 0 ? 'hidden' : 'visible';
+
+  var html = '';
+  for (var i = 0; i < q.opts.length; i++) {
+    var sel = answers[cur].indexOf(i) >= 0 ? ' sel' : '';
+    html += '<button class="opt' + sel + '" onclick="pick(' + i + ')">';
+    html += '<span class="opt-letter">' + letters[i] + '</span>';
+    html += q.opts[i] + '</button>';
+  }
+  document.getElementById('opts').innerHTML = html;
+  document.getElementById('btn-next').disabled = answers[cur].length === 0;
+  document.getElementById('btn-next').textContent = cur === 24 ? '查看結果 ✦' : '繼續 →';
+}
+
+function pick(i) {
+  var arr = answers[cur];
+  var pos = arr.indexOf(i);
+  if (pos >= 0) { arr.splice(pos, 1); } else { arr.push(i); }
+  renderQ();
+}
+
+function goNext() {
+  if (answers[cur].length === 0) return;
+  if (cur < 24) { cur++; renderQ(); window.scrollTo(0,0); }
+  else { doResult(); }
+}
+
+function goPrev() {
+  if (cur > 0) { cur--; renderQ(); window.scrollTo(0,0); }
+}
+
+function calcType() {
+  var scores = {};
+  for (var i = 0; i < 20; i++) {
+    var arr = answers[i];
+    for (var j = 0; j < arr.length; j++) {
+      var t = MAP[i][arr[j]];
+      scores[t] = (scores[t] || 0) + 1;
+    }
+  }
+  var best = 'rental'; var bestN = 0;
+  for (var k in scores) { if (scores[k] > bestN) { bestN = scores[k]; best = k; } }
+  return best;
+}
+
+function doResult() {
+  show('sec-loading');
+  setTimeout(function() { showResult(); }, 2200);
+}
+
+function showResult() {
+  try {
+  var typeKey = calcType();
+  var t = TYPES[typeKey];
+  var finScore = calcFinScore();
+  var finLevel = getFinLevel(finScore);
+
+  // Build answers string
+  var ansStr = '';
+  var letters = ['A','B','C','D','E'];
+  for (var i = 0; i < 25; i++) {
+    var sel = answers[i].length > 0 ? answers[i].map(function(a){return letters[a];}).join('+') : '-';
+    ansStr += 'Q'+(i+1)+':'+sel+(i<24?', ':'');
+  }
+
+  // [已修正] 之前呢度計完 ansStr 之後從來冇send出去，
+  // 導致 Sheet 永遠停留在「登記但未完成測試」嘅佔位狀態。
+  // 而家補返呢個call，將完成測試嘅真實資料更新返去對應嘅row。
+  saveToSheet({
+    _action: 'update',
+    name: uName,
+    email: uEmail,
+    mbti_type: t.name,
+    mbti_key: typeKey,
+    finance_score: finScore,
+    answers: ansStr
+  });
+
+  // Render
+  document.getElementById('r-icon').innerHTML = t.icon;
+  document.getElementById('r-name').textContent = t.name;
+  document.getElementById('r-en').textContent = t.en;
+  document.getElementById('r-traits').textContent = t.traits;
+  document.getElementById('r-strength').textContent = t.strength;
+  document.getElementById('r-caution').textContent = t.caution;
+
+  var propsHtml = '';
+  for (var p = 0; p < t.props.length; p++) {
+    propsHtml += '<span class="tag">' + t.props[p] + '</span>';
+  }
+  document.getElementById('r-props').innerHTML = propsHtml;
+  document.getElementById('r-fin-score').textContent = finScore + '/100';
+  document.getElementById('r-fin-label').textContent = finLevel.range + '｜' + finLevel.label;
+
+  // Build Stripe payment URLs
+  var mainURL = 'https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00';
+  var encodedEmail = encodeURIComponent(uEmail);
+  var encodedName = encodeURIComponent(uName);
+  var finLevelKey = finScore <= 39 ? 'level1' : finScore <= 59 ? 'level2' : finScore <= 74 ? 'level3' : finScore <= 89 ? 'level4' : 'level5';
+  var params = '?prefilled_email=' + encodedEmail
+    + '&client_reference_id=' + typeKey
+    + '&utm_content=' + finScore
+    + '&utm_term=' + finLevelKey
+    + '&utm_source=' + encodedName;
+  try { document.getElementById('pay-main-btn').href = mainURL + params; } catch(e) {}
+  try { document.getElementById('upsell-pay-btn').href = mainURL + params; } catch(e) {}
+
+  show('sec-result');
+  } catch(err) { console.log('showResult error:',err); show('sec-result'); }
+}
+
+function scrollPay() {
+  setTimeout(function() {
+    var el = document.getElementById('pay-section');
+    if (el) { el.scrollIntoView({behavior:'smooth',block:'start'}); }
+  }, 100);
+}
+
+// -- PAYMENT RETURN HANDLER --
+function checkPaymentReturn() {
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('paid') !== '1') return;
+
+    var email = decodeURIComponent(urlParams.get('email') || '');
+    var mbtiKey = urlParams.get('mbti') || 'rental';
+    var finScore = urlParams.get('score') || '60';
+    var finLevel = urlParams.get('level') || 'level3';
+    var name = decodeURIComponent(urlParams.get('name') || '投資者');
+
+    if (!email || email === '投資者') return;
+
+    saveToSheet({
+      _action: 'stripe_paid',
+      email: email,
+      name: name,
+      mbti_key: mbtiKey,
+      finance_score: finScore,
+      finance_level: finLevel,
+      amount: 48
+    });
+
+    document.body.innerHTML = ''
+      + '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;padding:40px 20px;text-align:center;">'
+      + '<div style="max-width:500px;">'
+      + '<div style="font-size:56px;margin-bottom:20px;">&#x2705;</div>'
+      + '<div style="font-family:Georgia,serif;font-size:24px;font-weight:700;color:#d4a853;margin-bottom:16px;">付款成功！</div>'
+      + '<div style="font-size:16px;color:rgba(255,255,255,0.85);line-height:2;margin-bottom:24px;">'
+      + '請查看發送到你電郵的<br><strong style="color:#f0c96e;">「你的專屬完整日本物業 MBTI 分析報告」</strong><br>'
+      + '<span style="font-size:13px;color:rgba(255,255,255,0.5);">發送至：' + email + '</span>'
+      + '</div>'
+      + '<div style="background:rgba(255,255,255,0.06);border:1px solid rgba(212,168,83,0.2);border-radius:14px;padding:18px 20px;margin-bottom:24px;">'
+      + '<div style="font-size:13px;color:rgba(255,255,255,0.55);line-height:1.9;">'
+      + '&#x1F4EC; 請稍等數分鐘查看電郵<br>'
+      + '&#x1F4C1; 如未收到，請查看垃圾郵件箱<br>'
+      + '如有問題請電郵：<em>crystalcheung.worldwide@gmail.com</em>'
+      + '</div>'
+      + '</div>'
+      + '</div></div>';
+  } catch(e) {}
+}
+
+checkPaymentReturn();
+</script>
+</body>
+</html>
