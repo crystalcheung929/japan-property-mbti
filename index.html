@@ -89,8 +89,6 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
 .btn-pay{display:block;background:linear-gradient(135deg,var(--gold),var(--gold-light),var(--gold));color:var(--ink);font-family:'Noto Serif TC',serif;font-size:16px;font-weight:700;padding:17px 32px;border-radius:100px;text-decoration:none;box-shadow:0 4px 24px rgba(212,168,83,0.4);max-width:360px;margin:0 auto 12px;}
 .pay-note{font-size:11px;color:rgba(255,255,255,0.35);}
 
-
-
 @media(max-width:480px){
   .card{padding:26px 18px;}
   .rsec{padding:20px 16px;}
@@ -137,7 +135,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
 <!-- QUIZ -->
 <section id="sec-quiz">
   <div class="prog-wrap"><div class="prog-fill" id="prog" style="width:5%"></div></div>
-  <div class="q-label" id="qlabel">問題 1 / 20</div>
+  <div class="q-label" id="qlabel">問題 1 / 25</div>
   <div class="q-hint">&#x1F4A1; 可選擇多個答案</div>
   <div class="q-text" id="qtext"></div>
   <div class="opts" id="opts"></div>
@@ -195,14 +193,17 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--cream);color:var(--i
     <a class="btn-pay" id="upsell-pay-btn" href="https://buy.stripe.com/3cI4gyfVXcBo0Yvcz20gw00" target="_blank">以 HK$48 解鎖「你的專屬完整日本物業 MBTI 分析報告」！</a>
     <div class="pay-note">&#x1F512; 安全付款 &nbsp;·&nbsp; 信用卡 / PayMe / FPS</div>
   </div>
-
-
 </section>
 
 <script>
-// -- SHEET --
-// [已修正] 之前呢個URL指向緊一個唔同/舊嘅 Apps Script deployment，
-// 導致所有backend更新都冇實際生效。而家已改成正確嘅 Version 5 deployment URL。
+// ============ 已修正 ============
+// 主要改動：
+// 1. 加入 localStorage 儲存客戶資訊（name, email, MBTI type, finance score）
+// 2. 改進 checkPaymentReturn() 從 localStorage 讀取客戶資訊
+// 3. 加入 flag 防止重複執行
+// 4. 確保 Stripe 返回時能正確記錄支付
+// ================================
+
 var SHEET = 'https://script.google.com/macros/s/AKfycbyFgcDLnVcFTruwlMpW2Q9sZ08m8IKYkj4LsDsDHK5bHmirVHW5pkaIi6DgP83_d6RD/exec';
 
 function saveToSheet(data) {
@@ -229,7 +230,6 @@ function saveToSheet(data) {
       body: JSON.stringify(data)
     });
   } catch(e2) {}
-
 }
 
 // -- STATE --
@@ -268,7 +268,7 @@ var QS = [
   {q:'你過去是否有實際執行投資計劃的經驗？',opts:['仍停留在想法階段','有研究，但未真正開始','已開始投資，例如ETF／股票／基金','有持續投資習慣，並會定期檢視','已有買樓／海外資產／收租經驗']}
 ];
 
-// -- TYPE SCORING MAP (per question, per option index) --
+// -- TYPE SCORING MAP --
 var MAP = [
   ['rental','lifestyle','airbnb','lifestyle'],
   ['future','future','rental','growth'],
@@ -315,8 +315,6 @@ var FIN = [
 ];
 
 function calcFinScore() {
-  // Q21-25 (index 20-24): each option A-E worth 4/8/12/16/20 points
-  // Multi-select: take the HIGHEST selected option per question (most accurate financial signal)
   var total = 0;
   for (var i = 20; i <= 24; i++) {
     var arr = answers[i];
@@ -358,6 +356,11 @@ function goQuiz() {
   if (!email || email.indexOf('@') < 0) { alert('請輸入有效的電郵地址'); return; }
   uName = name;
   uEmail = email;
+  
+  // [已修正] 儲存到 localStorage，方便後面 Stripe 返回時使用
+  localStorage.setItem('mbti_name', name);
+  localStorage.setItem('mbti_email', email);
+  
   saveToSheet({timestamp:new Date().toISOString(),name:name,email:email,mbti_type:'(登記但未完成測試)',mbti_key:'',finance_score:'',answers:''});
   cur = 0;
   for (var i = 0; i < 25; i++) { answers[i] = []; }
@@ -436,9 +439,12 @@ function showResult() {
     ansStr += 'Q'+(i+1)+':'+sel+(i<24?', ':'');
   }
 
-  // [已修正] 之前呢度計完 ansStr 之後從來冇send出去，
-  // 導致 Sheet 永遠停留在「登記但未完成測試」嘅佔位狀態。
-  // 而家補返呢個call，將完成測試嘅真實資料更新返去對應嘅row。
+  // [已修正] 儲存結果到 localStorage
+  localStorage.setItem('mbti_type', typeKey);
+  localStorage.setItem('mbti_type_name', t.name);
+  localStorage.setItem('mbti_finance_score', finScore);
+
+  // 更新 Sheet
   saveToSheet({
     _action: 'update',
     name: uName,
@@ -475,44 +481,46 @@ function showResult() {
     + '&utm_content=' + finScore
     + '&utm_term=' + finLevelKey
     + '&utm_source=' + encodedName;
-  try { document.getElementById('pay-main-btn').href = mainURL + params; } catch(e) {}
   try { document.getElementById('upsell-pay-btn').href = mainURL + params; } catch(e) {}
 
   show('sec-result');
   } catch(err) { console.log('showResult error:',err); show('sec-result'); }
 }
 
-function scrollPay() {
-  setTimeout(function() {
-    var el = document.getElementById('pay-section');
-    if (el) { el.scrollIntoView({behavior:'smooth',block:'start'}); }
-  }, 100);
-}
-
-// -- PAYMENT RETURN HANDLER --
+// -- [已修正] PAYMENT RETURN HANDLER --
 function checkPaymentReturn() {
   try {
     var urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('paid') !== '1') return;
+    
+    // [已修正] 防止重複執行
+    if (sessionStorage.getItem('payment_processed') === '1') return;
+    sessionStorage.setItem('payment_processed', '1');
 
-    var email = decodeURIComponent(urlParams.get('email') || '');
-    var mbtiKey = urlParams.get('mbti') || 'rental';
-    var finScore = urlParams.get('score') || '60';
-    var finLevel = urlParams.get('level') || 'level3';
-    var name = decodeURIComponent(urlParams.get('name') || '投資者');
+    // [已修正] 從 localStorage 讀取客戶資訊
+    var email = localStorage.getItem('mbti_email') || '';
+    var name = localStorage.getItem('mbti_name') || '投資者';
+    var mbtiKey = localStorage.getItem('mbti_type') || 'rental';
+    var mbtiName = localStorage.getItem('mbti_type_name') || '未知類型';
+    var finScore = localStorage.getItem('mbti_finance_score') || '60';
+    
+    if (!email || email === '') return; // 冇 email 就不處理
 
-    if (!email || email === '投資者') return;
-
+    // [已修正] 記錄支付到 Sheet
     saveToSheet({
       _action: 'stripe_paid',
       email: email,
       name: name,
       mbti_key: mbtiKey,
+      mbti_type: mbtiName,
       finance_score: finScore,
-      finance_level: finLevel,
       amount: 48
     });
 
+    // 清空 localStorage（防止重複）
+    // localStorage.clear(); // 可選：完全清空
+
+    // 顯示成功頁面
     document.body.innerHTML = ''
       + '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a2e;padding:40px 20px;text-align:center;">'
       + '<div style="max-width:500px;">'
@@ -530,7 +538,9 @@ function checkPaymentReturn() {
       + '</div>'
       + '</div>'
       + '</div></div>';
-  } catch(e) {}
+  } catch(e) {
+    console.log('checkPaymentReturn error:', e);
+  }
 }
 
 checkPaymentReturn();
