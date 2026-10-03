@@ -477,7 +477,7 @@ function showResult() {
   var encodedName = encodeURIComponent(uName);
   var finLevelKey = finScore <= 39 ? 'level1' : finScore <= 59 ? 'level2' : finScore <= 74 ? 'level3' : finScore <= 89 ? 'level4' : 'level5';
   var params = '?prefilled_email=' + encodedEmail
-    + '&client_reference_id=' + typeKey
+    + '&client_reference_id=' + typeKey + '__' + finScore + '__' + (function(){ try { return btoa(String(uEmail).trim().toLowerCase()).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch(e) { return ''; } })()
     + '&utm_content=' + finScore
     + '&utm_term=' + finLevelKey
     + '&utm_source=' + encodedName;
